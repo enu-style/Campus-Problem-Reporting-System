@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Role {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  users     User[]
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("roles")
+}
+
+model Department {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique
+  description String?
+  users       User[]
+  complaints  Complaint[]
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  @@map("departments")
+}
+
+model User {
+  id           Int          @id @default(autoincrement())
+  fullName     String       @map("full_name")
+  email        String       @unique
+  passwordHash String       @map("password_hash")
+  roleId       Int          @map("role_id")
+  departmentId Int?         @map("department_id")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  role         Role         @relation(fields: [roleId], references: [id])
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  complaints   Complaint[]
+
+  @@map("users")
+}
+
+model Category {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique
+  description String?
+  complaints  Complaint[]
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  @@map("categories")
+}
+
+model Location {
+  id          Int         @id @default(autoincrement())
+  building    String
+  floor       String?
+  room        String?
+  area        String?
+  complaints  Complaint[]
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  @@map("locations")
+}
+
+model Complaint {
+  id           Int         @id @default(autoincrement())
+  title        String
+  description  String
+  priority     Priority    @default(MEDIUM)
+  status       ComplaintStatus @default(PENDING)
+  reportedById Int         @map("reported_by_id")
+  categoryId   Int         @map("category_id")
+  locationId   Int         @map("location_id")
+  departmentId Int?        @map("department_id")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  reporter     User        @relation(fields: [reportedById], references: [id])
+  category     Category    @relation(fields: [categoryId], references: [id])
+  location     Location    @relation(fields: [locationId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  @@map("complaints")
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ComplaintStatus {
+  PENDING
+  REVIEWED
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+}
