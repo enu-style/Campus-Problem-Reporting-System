@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../src/generated/prisma"
 }
 
@@ -28,19 +28,21 @@ model Department {
 }
 
 model User {
-  id           Int          @id @default(autoincrement())
-  fullName     String       @map("full_name")
-  email        String       @unique
-  passwordHash String       @map("password_hash")
-  roleId       Int          @map("role_id")
-  departmentId Int?         @map("department_id")
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  id           Int      @id @default(autoincrement())
+  fullName     String   @map("full_name")
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  roleId       Int      @map("role_id")
+  departmentId Int?     @map("department_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  role         Role         @relation(fields: [roleId], references: [id])
-  department   Department?  @relation(fields: [departmentId], references: [id])
-  complaints   Complaint[]
+  role          Role                    @relation(fields: [roleId], references: [id])
+  department    Department?             @relation(fields: [departmentId], references: [id])
+  complaints    Complaint[]
+  statusChanges ComplaintStatusHistory[]
 
+comments      ComplaintComment[]
   @@map("users")
 }
 
@@ -55,36 +57,67 @@ model Category {
 }
 
 model Location {
-  id          Int         @id @default(autoincrement())
-  building    String
-  floor       String?
-  room        String?
-  area        String?
-  complaints  Complaint[]
-  createdAt   DateTime    @default(now()) @map("created_at")
+  id         Int         @id @default(autoincrement())
+  building   String
+  floor      String?
+  room       String?
+  area       String?
+  complaints Complaint[]
+  createdAt  DateTime    @default(now()) @map("created_at")
 
   @@map("locations")
 }
 
 model Complaint {
-  id           Int         @id @default(autoincrement())
+  id           Int             @id @default(autoincrement())
   title        String
   description  String
-  priority     Priority    @default(MEDIUM)
+  priority     Priority        @default(MEDIUM)
   status       ComplaintStatus @default(PENDING)
-  reportedById Int         @map("reported_by_id")
-  categoryId   Int         @map("category_id")
-  locationId   Int         @map("location_id")
-  departmentId Int?        @map("department_id")
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
+  reportedById Int             @map("reported_by_id")
+  categoryId   Int             @map("category_id")
+  locationId   Int             @map("location_id")
+  departmentId Int?            @map("department_id")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
 
-  reporter     User        @relation(fields: [reportedById], references: [id])
-  category     Category    @relation(fields: [categoryId], references: [id])
-  location     Location    @relation(fields: [locationId], references: [id])
-  department   Department? @relation(fields: [departmentId], references: [id])
+  reporter      User                    @relation(fields: [reportedById], references: [id])
+  category      Category                @relation(fields: [categoryId], references: [id])
+  location      Location                @relation(fields: [locationId], references: [id])
+  department    Department?             @relation(fields: [departmentId], references: [id])
+ statusHistory ComplaintStatusHistory[]
+comments      ComplaintComment[]
 
   @@map("complaints")
+}
+
+model ComplaintStatusHistory {
+  id          Int             @id @default(autoincrement())
+  complaintId Int             @map("complaint_id")
+  oldStatus   ComplaintStatus? @map("old_status")
+  newStatus   ComplaintStatus  @map("new_status")
+  changedById Int             @map("changed_by_id")
+  note        String?
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  changedBy User      @relation(fields: [changedById], references: [id])
+
+  @@map("complaint_status_history")
+}
+model ComplaintComment {
+  id          Int      @id @default(autoincrement())
+  complaintId Int      @map("complaint_id")
+  userId      Int      @map("user_id")
+  comment     String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([complaintId])
+  @@map("complaint_comments")
 }
 
 enum Priority {

@@ -15,8 +15,10 @@ build/
 npm-debug.log*
 
 # Generated Prisma client
-backend/src/generated/
+src/generated/
 
 # OS files
 .DS_Store
 Thumbs.db
+# Local debugging scripts
+checkUsers.js
