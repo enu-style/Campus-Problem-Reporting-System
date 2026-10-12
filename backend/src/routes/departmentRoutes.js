@@ -6,13 +6,19 @@ const {
 } = require("../controllers/departmentController");
 
 const authenticateToken = require("../middleware/authMiddleware");
+const requireRole = require("../middleware/roleMiddleware");
 
 const router = express.Router();
 
-// Get all departments
+// All authenticated users can view departments
 router.get("/", authenticateToken, getDepartments);
 
-// Create a department
-router.post("/", authenticateToken, createDepartment);
+// Only administrators can create departments
+router.post(
+  "/",
+  authenticateToken,
+  requireRole("ADMINISTRATOR"),
+  createDepartment
+);
 
 module.exports = router;

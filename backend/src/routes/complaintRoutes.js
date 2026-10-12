@@ -41,7 +41,7 @@ router.patch(
 router.patch(
   "/:id/assign",
   authenticateToken,
-  requireRole("STAFF", "DEPARTMENT_OFFICER", "ADMINISTRATOR"),
+  requireRole("STAFF", "ADMINISTRATOR"),
   assignComplaint,
 );
 
