@@ -63,30 +63,39 @@ const ALLOWED_TRANSITIONS = {
 
 // ======================================================
 // CREATE COMPLAINT
+// Supports registered and custom campus locations
 // ======================================================
 const createComplaint = async (req, res) => {
   try {
-    const { title, description, priority, categoryId, locationId } = req.body;
+    const {
+      title,
+      description,
+      priority,
+      categoryId,
+      locationId,
+      locationDescription,
+    } = req.body;
 
-    // Validate required fields
-    if (!title || !description || !categoryId || !locationId) {
+    // 1. Validate required text fields
+    if (
+      typeof title !== "string" ||
+      typeof description !== "string" ||
+      !title.trim() ||
+      !description.trim() ||
+      categoryId === undefined ||
+      categoryId === null ||
+      String(categoryId).trim() === ""
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Title, description, categoryId, and locationId are required",
+        message:
+          "Title, description, and categoryId are required",
       });
     }
 
     const cleanTitle = title.trim();
     const cleanDescription = description.trim();
     const categoryIdNumber = Number(categoryId);
-    const locationIdNumber = Number(locationId);
-
-    if (!cleanTitle || !cleanDescription) {
-      return res.status(400).json({
-        success: false,
-        message: "Title and description cannot be empty",
-      });
-    }
 
     if (!Number.isInteger(categoryIdNumber) || categoryIdNumber <= 0) {
       return res.status(400).json({
@@ -95,14 +104,65 @@ const createComplaint = async (req, res) => {
       });
     }
 
-    if (!Number.isInteger(locationIdNumber) || locationIdNumber <= 0) {
+    // 2. Validate custom location description
+    if (
+      locationDescription !== undefined &&
+      locationDescription !== null &&
+      typeof locationDescription !== "string"
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Invalid location ID",
+        message: "Location description must be text",
       });
     }
 
-    // Validate priority
+    const cleanLocationDescription =
+      typeof locationDescription === "string"
+        ? locationDescription.trim()
+        : "";
+
+    if (cleanLocationDescription.length > 500) {
+      return res.status(400).json({
+        success: false,
+        message: "Location description cannot exceed 500 characters",
+      });
+    }
+
+    // 3. Determine the location choice
+    const hasLocationId =
+      locationId !== undefined &&
+      locationId !== null &&
+      String(locationId).trim() !== "";
+
+    const hasCustomLocation =
+      cleanLocationDescription.length > 0;
+
+    // Exactly one location choice is required
+    if (hasLocationId === hasCustomLocation) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Select a registered location OR provide a custom location description",
+      });
+    }
+
+    let locationIdNumber = null;
+
+    if (hasLocationId) {
+      locationIdNumber = Number(locationId);
+
+      if (
+        !Number.isInteger(locationIdNumber) ||
+        locationIdNumber <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid location ID",
+        });
+      }
+    }
+
+    // 4. Validate priority
     const complaintPriority = priority || "MEDIUM";
 
     if (!VALID_PRIORITIES.includes(complaintPriority)) {
@@ -112,7 +172,7 @@ const createComplaint = async (req, res) => {
       });
     }
 
-    // Check category
+    // 5. Verify category exists
     const category = await prisma.category.findUnique({
       where: {
         id: categoryIdNumber,
@@ -126,32 +186,40 @@ const createComplaint = async (req, res) => {
       });
     }
 
-    // Check location
-    const location = await prisma.location.findUnique({
-      where: {
-        id: locationIdNumber,
-      },
-    });
-
-    if (!location) {
-      return res.status(404).json({
-        success: false,
-        message: "Location not found",
+    // 6. Verify registered location, if selected
+    if (hasLocationId) {
+      const location = await prisma.location.findUnique({
+        where: {
+          id: locationIdNumber,
+        },
       });
+
+      if (!location) {
+        return res.status(404).json({
+          success: false,
+          message: "Location not found",
+        });
+      }
     }
 
-    // ==================================================
-    // CREATE COMPLAINT + INITIAL HISTORY IN TRANSACTION
-    // ==================================================
+    // 7. Create complaint and initial history transactionally
     const result = await prisma.$transaction(async (tx) => {
       const complaint = await tx.complaint.create({
         data: {
           title: cleanTitle,
           description: cleanDescription,
           priority: complaintPriority,
-          reportedById: req.user.userId,
+          reportedById: Number(req.user.userId),
           categoryId: categoryIdNumber,
-          locationId: locationIdNumber,
+
+          // Registered location OR custom location
+          locationId: hasLocationId
+            ? locationIdNumber
+            : null,
+
+          locationDescription: hasCustomLocation
+            ? cleanLocationDescription
+            : null,
         },
 
         include: {
@@ -169,13 +237,13 @@ const createComplaint = async (req, res) => {
         },
       });
 
-      // Initial history
+      // Record initial complaint status
       await tx.complaintStatusHistory.create({
         data: {
           complaintId: complaint.id,
           oldStatus: null,
           newStatus: complaint.status,
-          changedById: req.user.userId,
+          changedById: Number(req.user.userId),
           note: "Complaint created",
         },
       });

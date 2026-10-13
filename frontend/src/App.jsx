@@ -107,6 +107,7 @@ function App() {
     description: "",
     categoryId: "",
     locationId: "",
+    locationDescription: "",
     priority: "MEDIUM",
   });
 
@@ -713,13 +714,27 @@ function App() {
   // ======================================================
   // COMPLAINT FORM CHANGE
   // ======================================================
+
   const handleComplaintChange = (e) => {
     const { name, value } = e.target;
 
-    setComplaintForm((previous) => ({
-      ...previous,
-      [name]: value,
-    }));
+    setComplaintForm((previous) => {
+      const updated = {
+        ...previous,
+        [name]: value,
+      };
+
+      // Use either a registered location or a custom location.
+      if (name === "locationId" && value) {
+        updated.locationDescription = "";
+      }
+
+      if (name === "locationDescription" && value.trim()) {
+        updated.locationId = "";
+      }
+
+      return updated;
+    });
   };
 
   // ======================================================
@@ -745,8 +760,13 @@ function App() {
       return;
     }
 
-    if (!complaintForm.locationId) {
-      setComplaintMessage("Please select a location.");
+    if (
+      !complaintForm.locationId &&
+      !complaintForm.locationDescription.trim()
+    ) {
+      setComplaintMessage(
+        "Please select a registered location or enter a custom location.",
+      );
       return;
     }
 
@@ -767,7 +787,11 @@ function App() {
 
           categoryId: Number(complaintForm.categoryId),
 
-          locationId: Number(complaintForm.locationId),
+          ...(complaintForm.locationId
+            ? { locationId: Number(complaintForm.locationId) }
+            : {
+                locationDescription: complaintForm.locationDescription.trim(),
+              }),
 
           priority: complaintForm.priority,
         }),
@@ -778,13 +802,14 @@ function App() {
       if (data.success) {
         setComplaintMessage("Complaint submitted successfully!");
 
-        setComplaintForm({
-          title: "",
-          description: "",
-          categoryId: "",
-          locationId: "",
-          priority: "MEDIUM",
-        });
+      setComplaintForm({
+        title: "",
+        description: "",
+        categoryId: "",
+        locationId: "",
+        locationDescription: "",
+        priority: "MEDIUM",
+      });
 
         await loadComplaints();
 
@@ -1276,9 +1301,11 @@ function App() {
         <div className="login-background-shape shape-two"></div>
 
         <div className="login-card">
-          <div className="login-logo">
-            <span>CR</span>
-          </div>
+          <img
+            src="/images/injibara-university-logo.png"
+            alt="Injibara University Logo"
+            className="university-logo"
+          />
 
           <h1>Campus Reporting System</h1>
 
@@ -1338,11 +1365,14 @@ function App() {
       ================================================== */}
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="sidebar-brand">
-          <div className="brand-icon">CR</div>
+          <img
+            src="/images/injibara-university-logo.png"
+            alt="Injibara University Logo"
+            className="university-logo"
+          />
 
           <div>
             <h2>Campus</h2>
-
             <span>Reporting System</span>
           </div>
         </div>
@@ -1879,26 +1909,23 @@ function App() {
                   </div>
 
                   {/* LOCATION */}
-                  <div className="form-group">
-                    <label>Location</label>
 
+                  {/* REGISTERED LOCATION */}
+                  <div className="form-group">
+                    <label>Registered Location (optional)</label>
                     <select
                       name="locationId"
                       value={complaintForm.locationId}
                       onChange={handleComplaintChange}
-                      required
                     >
-                      <option value="">Select location</option>
+                      <option value="">Select a registered location</option>
 
                       {locations.map((location) => (
                         <option key={location.id} value={location.id}>
                           {[
                             location.building,
-
                             location.floor ? `Floor ${location.floor}` : "",
-
                             location.room ? `Room ${location.room}` : "",
-
                             location.area,
                           ]
                             .filter(Boolean)
@@ -1906,6 +1933,22 @@ function App() {
                         </option>
                       ))}
                     </select>
+                  </div>
+
+                  {/* CUSTOM LOCATION */}
+                  <div className="form-group">
+                    <label>Custom Location (if not listed)</label>
+                    <textarea
+                      name="locationDescription"
+                      placeholder="Example: Behind the library, near the water tank"
+                      value={complaintForm.locationDescription}
+                      onChange={handleComplaintChange}
+                      rows={3}
+                      maxLength={500}
+                    />
+                    <small>
+                      Select a registered location or enter a custom location.
+                    </small>
                   </div>
 
                   {/* PRIORITY */}
@@ -2571,8 +2614,9 @@ function ComplaintDetails({
       complaint.location?.area,
     ]
       .filter(Boolean)
-      .join(" — ") || "Unknown";
-
+      .join(" — ") ||
+    complaint.locationDescription ||
+    "Unknown";
   return (
     <div className="complaint-details-page">
       {/* ==================================================

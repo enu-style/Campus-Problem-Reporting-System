@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/prisma"
@@ -41,8 +42,8 @@ model User {
   department    Department?             @relation(fields: [departmentId], references: [id])
   complaints    Complaint[]
   statusChanges ComplaintStatusHistory[]
+  comments      ComplaintComment[]
 
-comments      ComplaintComment[]
   @@map("users")
 }
 
@@ -69,24 +70,25 @@ model Location {
 }
 
 model Complaint {
-  id           Int             @id @default(autoincrement())
-  title        String
-  description  String
-  priority     Priority        @default(MEDIUM)
-  status       ComplaintStatus @default(PENDING)
-  reportedById Int             @map("reported_by_id")
-  categoryId   Int             @map("category_id")
-  locationId   Int             @map("location_id")
-  departmentId Int?            @map("department_id")
-  createdAt    DateTime        @default(now()) @map("created_at")
-  updatedAt    DateTime        @updatedAt @map("updated_at")
+  id                  Int             @id @default(autoincrement())
+  title               String
+  description         String
+  priority            Priority        @default(MEDIUM)
+  status              ComplaintStatus @default(PENDING)
+  reportedById        Int             @map("reported_by_id")
+  categoryId          Int             @map("category_id")
+  locationId          Int?            @map("location_id")
+  locationDescription String?         @map("location_description")
+  departmentId        Int?            @map("department_id")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
 
   reporter      User                    @relation(fields: [reportedById], references: [id])
   category      Category                @relation(fields: [categoryId], references: [id])
-  location      Location                @relation(fields: [locationId], references: [id])
+  location      Location?               @relation(fields: [locationId], references: [id])
   department    Department?             @relation(fields: [departmentId], references: [id])
- statusHistory ComplaintStatusHistory[]
-comments      ComplaintComment[]
+  statusHistory ComplaintStatusHistory[]
+  comments      ComplaintComment[]
 
   @@map("complaints")
 }
@@ -105,6 +107,7 @@ model ComplaintStatusHistory {
 
   @@map("complaint_status_history")
 }
+
 model ComplaintComment {
   id          Int      @id @default(autoincrement())
   complaintId Int      @map("complaint_id")

@@ -262,11 +262,7 @@ textarea {
 }
 
 .nav-item.active {
-  background: linear-gradient(
-    135deg,
-    #1d4ed8,
-    #2563eb
-  );
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
 
   color: #ffffff;
 
@@ -724,11 +720,7 @@ textarea {
 
   border-radius: 50%;
 
-  background: linear-gradient(
-    135deg,
-    #2563eb,
-    #4f46e5
-  );
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
 
   color: #ffffff;
 
@@ -853,11 +845,7 @@ textarea {
       rgba(37, 99, 235, 0.07),
       transparent 35%
     ),
-    linear-gradient(
-      135deg,
-      #ffffff,
-      #f8fbff
-    );
+    linear-gradient(135deg, #ffffff, #f8fbff);
 
   box-shadow: 0 5px 18px rgba(15, 23, 42, 0.05);
 }
@@ -899,10 +887,7 @@ textarea {
 .stats-grid {
   display: grid;
 
-  grid-template-columns: repeat(
-    4,
-    minmax(0, 1fr)
-  );
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 
   gap: 17px;
 
@@ -1316,8 +1301,7 @@ select:focus,
 textarea:focus {
   border-color: #3b82f6;
 
-  box-shadow:
-    0 0 0 3px rgba(37, 99, 235, 0.11);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.11);
 }
 
 select {
@@ -1363,10 +1347,7 @@ select option {
 .form-grid {
   display: grid;
 
-  grid-template-columns: repeat(
-    2,
-    minmax(0, 1fr)
-  );
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 
   gap: 18px;
 }
@@ -1677,10 +1658,7 @@ tbody tr:last-child td {
 .department-grid {
   display: grid;
 
-  grid-template-columns: repeat(
-    3,
-    minmax(0, 1fr)
-  );
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 
   gap: 17px;
 
@@ -1804,10 +1782,7 @@ tbody tr:last-child td {
 }
 
 .user-form-grid {
-  grid-template-columns: repeat(
-    2,
-    minmax(0, 1fr)
-  );
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .optional-label {
@@ -1900,10 +1875,7 @@ tbody tr:last-child td {
 .report-grid {
   display: grid;
 
-  grid-template-columns: repeat(
-    3,
-    minmax(0, 1fr)
-  );
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 
   gap: 18px;
 
@@ -2004,11 +1976,7 @@ tbody tr:last-child td {
 
   border-radius: 50%;
 
-  background: linear-gradient(
-    135deg,
-    #2563eb,
-    #4f46e5
-  );
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
 
   color: #ffffff;
 
@@ -2026,10 +1994,7 @@ tbody tr:last-child td {
 
   display: grid;
 
-  grid-template-columns: repeat(
-    2,
-    minmax(180px, 1fr)
-  );
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
 
   gap: 25px;
 }
@@ -2107,8 +2072,7 @@ tbody tr:last-child td {
 .profile-edit-form input:focus {
   border-color: #2563eb;
 
-  box-shadow:
-    0 0 0 3px rgba(37, 99, 235, 0.08);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
 }
 
 /* =========================================================
@@ -2118,10 +2082,7 @@ tbody tr:last-child td {
 .profile-readonly {
   display: grid;
 
-  grid-template-columns: repeat(
-    2,
-    minmax(0, 1fr)
-  );
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 
   gap: 20px;
 
@@ -2167,10 +2128,7 @@ tbody tr:last-child td {
 .profile-extra {
   display: grid;
 
-  grid-template-columns: repeat(
-    3,
-    minmax(0, 1fr)
-  );
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 
   gap: 18px;
 
@@ -2326,11 +2284,7 @@ tbody tr:last-child td {
 
   border-radius: 14px;
 
-  background: linear-gradient(
-    135deg,
-    #2563eb,
-    #4f46e5
-  );
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
 
   color: #ffffff;
 
@@ -2415,8 +2369,7 @@ tbody tr:last-child td {
 
   transform: translateY(-1px);
 
-  box-shadow:
-    0 6px 18px rgba(37, 99, 235, 0.22);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.22);
 }
 
 .login-message {
@@ -2507,24 +2460,15 @@ textarea {
 
 @media (max-width: 1150px) {
   .stats-grid {
-    grid-template-columns: repeat(
-      2,
-      minmax(0, 1fr)
-    );
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .department-grid {
-    grid-template-columns: repeat(
-      2,
-      minmax(0, 1fr)
-    );
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .report-grid {
-    grid-template-columns: repeat(
-      2,
-      minmax(0, 1fr)
-    );
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .content {
@@ -2556,8 +2500,7 @@ textarea {
 
     transition: transform 0.25s ease;
 
-    box-shadow:
-      8px 0 30px rgba(15, 23, 42, 0.25);
+    box-shadow: 8px 0 30px rgba(15, 23, 42, 0.25);
   }
 
   .sidebar.sidebar-open {
@@ -2619,10 +2562,7 @@ textarea {
   }
 
   .stats-grid {
-    grid-template-columns: repeat(
-      2,
-      minmax(0, 1fr)
-    );
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 
     gap: 12px;
   }
@@ -3189,4 +3129,20 @@ textarea {
   .comment-form-footer .primary-button {
     width: 100%;
   }
+}
+
+/* Injibara University logo */
+.university-logo {
+  display: block;
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+  margin: 0 auto 16px;
+}
+
+.sidebar-brand .university-logo {
+  width: 52px;
+  height: 52px;
+  margin: 0;
+  flex-shrink: 0;
 }
