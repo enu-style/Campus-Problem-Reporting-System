@@ -23,3 +23,5 @@ Thumbs.db
 # Local backup files
 *.backup
 *.bak
+backend/src/controllers/userController.js.before-update-fix
+backend/src/controllers/userController.js.validation-backup
