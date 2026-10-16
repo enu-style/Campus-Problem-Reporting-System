@@ -22,3 +22,5 @@ src/generated/
 Thumbs.db
 # Local debugging scripts
 checkUsers.js
+# User-uploaded complaint attachments
+uploads/

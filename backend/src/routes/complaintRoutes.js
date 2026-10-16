@@ -1,4 +1,5 @@
 const requireRole = require("../middleware/roleMiddleware");
+const handleComplaintUpload = require("../middleware/complaintUpload");
 const express = require("express");
 
 const {
@@ -9,6 +10,7 @@ const {
   getComplaintStatusHistory,
   updateComplaintStatus,
   assignComplaint,
+  downloadComplaintAttachment,
 } = require("../controllers/complaintController");
 
 const authenticateToken = require("../middleware/authMiddleware");
@@ -18,7 +20,7 @@ const router = express.Router();
 // ======================================================
 // CREATE A NEW COMPLAINT
 // ======================================================
-router.post("/", authenticateToken, createComplaint);
+router.post("/", authenticateToken, handleComplaintUpload, createComplaint);
 
 // ======================================================
 // GET COMPLAINTS REPORTED BY LOGGED-IN USER
@@ -48,6 +50,11 @@ router.patch(
 // ======================================================
 // GET COMPLAINT STATUS HISTORY
 // ======================================================
+router.get(
+  "/:id/attachments/:attachmentId",
+  authenticateToken,
+  downloadComplaintAttachment,
+);
 router.get("/:id/history", authenticateToken, getComplaintStatusHistory);
 
 // ======================================================

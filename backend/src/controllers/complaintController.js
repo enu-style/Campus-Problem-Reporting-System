@@ -1,4 +1,6 @@
 const prisma = require("../config/prisma");
+const fs = require("fs");
+const path = require("path");
 // ======================================================
 // CHECK WHO CAN VIEW A COMPLAINT
 // ======================================================
@@ -20,8 +22,7 @@ const canViewComplaint = async (userId, complaint) => {
 
   if (roleName === "DEPARTMENT_OFFICER") {
     return (
-      user.departmentId != null &&
-      complaint.departmentId === user.departmentId
+      user.departmentId != null && complaint.departmentId === user.departmentId
     );
   }
 
@@ -66,6 +67,8 @@ const ALLOWED_TRANSITIONS = {
 // Supports registered and custom campus locations
 // ======================================================
 const createComplaint = async (req, res) => {
+  let keepUploadedFiles = false;
+
   try {
     const {
       title,
@@ -88,8 +91,7 @@ const createComplaint = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message:
-          "Title, description, and categoryId are required",
+        message: "Title, description, and categoryId are required",
       });
     }
 
@@ -117,9 +119,7 @@ const createComplaint = async (req, res) => {
     }
 
     const cleanLocationDescription =
-      typeof locationDescription === "string"
-        ? locationDescription.trim()
-        : "";
+      typeof locationDescription === "string" ? locationDescription.trim() : "";
 
     if (cleanLocationDescription.length > 500) {
       return res.status(400).json({
@@ -134,8 +134,7 @@ const createComplaint = async (req, res) => {
       locationId !== null &&
       String(locationId).trim() !== "";
 
-    const hasCustomLocation =
-      cleanLocationDescription.length > 0;
+    const hasCustomLocation = cleanLocationDescription.length > 0;
 
     // Exactly one location choice is required
     if (hasLocationId === hasCustomLocation) {
@@ -151,10 +150,7 @@ const createComplaint = async (req, res) => {
     if (hasLocationId) {
       locationIdNumber = Number(locationId);
 
-      if (
-        !Number.isInteger(locationIdNumber) ||
-        locationIdNumber <= 0
-      ) {
+      if (!Number.isInteger(locationIdNumber) || locationIdNumber <= 0) {
         return res.status(400).json({
           success: false,
           message: "Invalid location ID",
@@ -213,9 +209,7 @@ const createComplaint = async (req, res) => {
           categoryId: categoryIdNumber,
 
           // Registered location OR custom location
-          locationId: hasLocationId
-            ? locationIdNumber
-            : null,
+          locationId: hasLocationId ? locationIdNumber : null,
 
           locationDescription: hasCustomLocation
             ? cleanLocationDescription
@@ -236,7 +230,18 @@ const createComplaint = async (req, res) => {
           },
         },
       });
-
+      // Save attachment metadata in the same transaction
+      if (req.files && req.files.length > 0) {
+        await tx.complaintAttachment.createMany({
+          data: req.files.map((file) => ({
+            complaintId: complaint.id,
+            originalName: file.originalname,
+            storedName: file.filename,
+            mimeType: file.mimetype,
+            size: file.size,
+          })),
+        });
+      }
       // Record initial complaint status
       await tx.complaintStatusHistory.create({
         data: {
@@ -251,6 +256,8 @@ const createComplaint = async (req, res) => {
       return complaint;
     });
 
+    keepUploadedFiles = true;
+
     return res.status(201).json({
       success: true,
       message: "Complaint reported successfully",
@@ -263,6 +270,12 @@ const createComplaint = async (req, res) => {
       success: false,
       message: "Server error while creating complaint",
     });
+  } finally {
+    if (!keepUploadedFiles && req.files?.length) {
+      await Promise.all(
+        req.files.map((file) => fs.promises.unlink(file.path).catch(() => {})),
+      );
+    }
   }
 };
 
@@ -952,6 +965,86 @@ const assignComplaint = async (req, res) => {
   }
 };
 
+const downloadComplaintAttachment = async (req, res) => {
+  try {
+    const complaintId = Number(req.params.id);
+    const attachmentId = Number(req.params.attachmentId);
+
+    if (
+      !Number.isInteger(complaintId) ||
+      complaintId <= 0 ||
+      !Number.isInteger(attachmentId) ||
+      attachmentId <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid complaint or attachment ID",
+      });
+    }
+
+    const attachment = await prisma.complaintAttachment.findFirst({
+      where: {
+        id: attachmentId,
+        complaintId,
+      },
+      include: {
+        complaint: true,
+      },
+    });
+
+    if (!attachment) {
+      return res.status(404).json({
+        success: false,
+        message: "Attachment not found",
+      });
+    }
+
+    const allowed = await canViewComplaint(
+      req.user.userId,
+      attachment.complaint,
+    );
+
+    if (!allowed) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to download this attachment",
+      });
+    }
+
+    // Resolve the stored filename safely inside the upload directory.
+    const uploadDirectory = path.resolve(__dirname, "../../uploads/complaints");
+    const filePath = path.resolve(
+      uploadDirectory,
+      path.basename(attachment.storedName),
+    );
+
+    if (!filePath.startsWith(uploadDirectory + path.sep)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid attachment path",
+      });
+    }
+
+    await fs.promises.access(filePath, fs.constants.R_OK);
+
+    return res.download(filePath, path.basename(attachment.originalName));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return res.status(404).json({
+        success: false,
+        message: "Attachment file is missing from storage",
+      });
+    }
+
+    console.error("Download complaint attachment error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while downloading attachment",
+    });
+  }
+};
+
 // ======================================================
 // EXPORT CONTROLLERS
 // ======================================================
@@ -963,4 +1056,5 @@ module.exports = {
   getComplaintStatusHistory,
   updateComplaintStatus,
   assignComplaint,
+  downloadComplaintAttachment,
 };

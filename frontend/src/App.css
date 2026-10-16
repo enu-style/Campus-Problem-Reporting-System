@@ -3146,3 +3146,32 @@ textarea {
   margin: 0;
   flex-shrink: 0;
 }
+
+  /* Login and student registration links */
+  .auth-switch {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 14px;
+    color: #555;
+  }
+
+  .auth-link {
+    display: inline;
+    padding: 0;
+    margin-left: 4px;
+    border: none;
+    background: transparent;
+    color: #2563eb;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .auth-link:hover {
+    text-decoration: underline;
+  }
+
+  .auth-link:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 3px;
+  }

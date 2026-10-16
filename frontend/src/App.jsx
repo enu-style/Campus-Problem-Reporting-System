@@ -33,6 +33,20 @@ function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  // STUDENT REGISTRATION
+  const [authMode, setAuthMode] = useState(() =>
+    new URLSearchParams(window.location.search).has("token")
+      ? "reset"
+      : "login",
+  );
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [resetUrl, setResetUrl] = useState("");
+  const [registerFullName, setRegisterFullName] = useState("");
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -101,7 +115,7 @@ function App() {
   // COMPLAINT FORM
   // ======================================================
   const [complaintMessage, setComplaintMessage] = useState("");
-
+  const [complaintFiles, setComplaintFiles] = useState([]);
   const [complaintForm, setComplaintForm] = useState({
     title: "",
     description: "",
@@ -685,6 +699,146 @@ function App() {
   };
 
   // ======================================================
+  // STUDENT REGISTRATION
+  // ======================================================
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setMessage("");
+
+    if (registerPassword !== confirmPassword) {
+      setMessage("Passwords do not match.");
+      return;
+    }
+
+    if (registerPassword.length < 8) {
+      setMessage("Password must be at least 8 characters.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/auth/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fullName: registerFullName.trim(),
+          email: registerEmail.trim(),
+          password: registerPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setMessage(data.message || "Registration failed.");
+        return;
+      }
+
+      setEmail(registerEmail.trim());
+      setPassword("");
+      setRegisterFullName("");
+      setRegisterEmail("");
+      setRegisterPassword("");
+      setConfirmPassword("");
+
+      setMessage("Account created successfully! Please sign in.");
+      setAuthMode("login");
+    } catch (error) {
+      console.error("Registration error:", error);
+      setMessage("Cannot connect to server. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // FORGOT PASSWORD
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    setResetUrl("");
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setMessage(data.message || "Unable to request a password reset.");
+        return;
+      }
+
+      setMessage(data.message || "Password reset link created.");
+      if (data.resetUrl) setResetUrl(data.resetUrl);
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      setMessage("Cannot connect to server. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // RESET PASSWORD
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setMessage("");
+
+    const resetToken = new URLSearchParams(window.location.search).get("token");
+
+    if (!resetToken) {
+      setMessage("Reset token is missing. Request a new reset link.");
+      return;
+    }
+
+    if (resetNewPassword.length < 8) {
+      setMessage("Password must be at least 8 characters.");
+      return;
+    }
+
+    if (resetNewPassword !== resetConfirmPassword) {
+      setMessage("Passwords do not match.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: resetToken,
+          password: resetNewPassword,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setMessage(data.message || "Password reset failed.");
+        return;
+      }
+
+      setResetNewPassword("");
+      setResetConfirmPassword("");
+      setResetUrl("");
+      setPassword("");
+      setMessage(data.message || "Password reset successful. Please log in.");
+      setAuthMode("login");
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (error) {
+      console.error("Reset password error:", error);
+      setMessage("Cannot connect to server. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ======================================================
   // LOGOUT
   // ======================================================
   const logout = () => {
@@ -771,45 +925,52 @@ function App() {
     }
 
     try {
+      const formData = new FormData();
+
+      formData.append("title", complaintForm.title.trim());
+      formData.append("description", complaintForm.description.trim());
+      formData.append("categoryId", complaintForm.categoryId);
+      formData.append("priority", complaintForm.priority);
+
+      if (complaintForm.locationId) {
+        formData.append("locationId", complaintForm.locationId);
+      } else {
+        formData.append(
+          "locationDescription",
+          complaintForm.locationDescription.trim(),
+        );
+      }
+
+      complaintFiles.forEach((file) => {
+        formData.append("attachments", file);
+      });
+
       const response = await fetch(`${API_URL}/complaints`, {
         method: "POST",
-
         headers: {
-          "Content-Type": "application/json",
-
           Authorization: `Bearer ${token}`,
         },
-
-        body: JSON.stringify({
-          title: complaintForm.title.trim(),
-
-          description: complaintForm.description.trim(),
-
-          categoryId: Number(complaintForm.categoryId),
-
-          ...(complaintForm.locationId
-            ? { locationId: Number(complaintForm.locationId) }
-            : {
-                locationDescription: complaintForm.locationDescription.trim(),
-              }),
-
-          priority: complaintForm.priority,
-        }),
+        body: formData,
       });
 
       const data = await response.json();
 
       if (data.success) {
         setComplaintMessage("Complaint submitted successfully!");
+        setComplaintFiles([]);
 
-      setComplaintForm({
-        title: "",
-        description: "",
-        categoryId: "",
-        locationId: "",
-        locationDescription: "",
-        priority: "MEDIUM",
-      });
+        const fileInput = document.getElementById("complaint-attachments");
+        if (fileInput) {
+          fileInput.value = "";
+        }
+        setComplaintForm({
+          title: "",
+          description: "",
+          categoryId: "",
+          locationId: "",
+          locationDescription: "",
+          priority: "MEDIUM",
+        });
 
         await loadComplaints();
 
@@ -1293,11 +1454,14 @@ function App() {
   // ======================================================
   // LOGIN SCREEN
   // ======================================================
+
+  // ======================================================
+  // LOGIN AND STUDENT REGISTRATION SCREEN
+  // ======================================================
   if (!token) {
     return (
       <div className="login-page">
         <div className="login-background-shape shape-one"></div>
-
         <div className="login-background-shape shape-two"></div>
 
         <div className="login-card">
@@ -1309,39 +1473,375 @@ function App() {
 
           <h1>Campus Reporting System</h1>
 
-          <p className="login-subtitle">Sign in to your account</p>
+          {authMode === "login" ? (
+            <>
+              <p className="login-subtitle">Sign in to your account</p>
 
-          <form onSubmit={handleLogin}>
-            <div className="input-group">
-              <label>Email</label>
+              <form onSubmit={handleLogin}>
+                <div className="input-group">
+                  <label htmlFor="login-email">Email</label>
+                  <input
+                    id="login-email"
+                    type="email"
+                    placeholder="Enter your email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
 
-              <input
-                type="email"
-                placeholder="Enter your email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+                <div className="input-group">
+                  <label htmlFor="login-password">Password</label>
+                  <input
+                    id="login-password"
+                    type="password"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="login-button"
+                  disabled={loading}
+                >
+                  {loading ? "Signing in..." : "Sign In"}
+                </button>
+              </form>
+
+              <p className="auth-switch">
+                <button
+                  type="button"
+                  className="auth-link"
+                  onClick={() => {
+                    setForgotEmail(email);
+                    setResetUrl("");
+                    setMessage("");
+                    setAuthMode("forgot");
+                  }}
+                >
+                  Forgot your password?
+                </button>
+              </p>
+
+              <p className="auth-switch">
+                Don't have an account?{" "}
+                <button
+                  type="button"
+                  className="auth-link"
+                  onClick={() => {
+                    setMessage("");
+                    setAuthMode("register");
+                  }}
+                >
+                  Register as a student
+                </button>
+              </p>
+            </>
+          ) : authMode === "forgot" ? (
+            <>
+              <p className="login-subtitle">Reset your password</p>
+
+              <form onSubmit={handleForgotPassword}>
+                <div className="input-group">
+                  <label htmlFor="forgot-email">Email</label>
+                  <input
+                    id="forgot-email"
+                    type="email"
+                    placeholder="Enter your account email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="login-button"
+                  disabled={loading}
+                >
+                  {loading ? "Requesting link..." : "Get Reset Link"}
+                </button>
+              </form>
+
+              {resetUrl && (
+                <p className="auth-switch">
+                  <a href={resetUrl} target="_self" style={{color:"#2563eb",textDecoration:"underline",cursor:"pointer",display:"inline-block",position:"relative",zIndex:10}}>
+                    Open password reset link
+                  </a>
+                </p>
+              )}
+
+              <p className="auth-switch">
+                <button
+                  type="button"
+                  className="auth-link"
+                  onClick={() => {
+                    setMessage("");
+                    setAuthMode("login");
+                  }}
+                >
+                  Back to Login
+                </button>
+              </p>
+            </>
+          ) : authMode === "reset" ? (
+            <>
+              <p className="login-subtitle">Choose a new password</p>
+
+              <form onSubmit={handleResetPassword}>
+                <div className="input-group">
+                  <label htmlFor="reset-new-password">New Password</label>
+                  <input
+                    id="reset-new-password"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={resetNewPassword}
+                    onChange={(e) => setResetNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="reset-confirm-password">
+                    Confirm New Password
+                  </label>
+                  <input
+                    id="reset-confirm-password"
+                    type="password"
+                    placeholder="Enter the password again"
+                    value={resetConfirmPassword}
+                    onChange={(e) => setResetConfirmPassword(e.target.value)}
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="login-button"
+                  disabled={loading}
+                >
+                  {loading ? "Resetting password..." : "Reset Password"}
+                </button>
+              </form>
+
+              <p className="auth-switch">
+                <button
+                  type="button"
+                  className="auth-link"
+                  onClick={() => {
+                    setMessage("");
+                    setAuthMode("login");
+                  }}
+                >
+                  Back to Login
+                </button>
+              </p>
+            </>
+          ) : authMode === "forgot" ? (
+            <>
+              <p className="login-subtitle">Reset your password</p>
+
+              <form onSubmit={handleForgotPassword}>
+                <div className="input-group">
+                  <label htmlFor="forgot-email">Email</label>
+                  <input
+                    id="forgot-email"
+                    type="email"
+                    placeholder="Enter your account email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="login-button"
+                  disabled={loading}
+                >
+                  {loading ? "Requesting link..." : "Get Reset Link"}
+                </button>
+              </form>
+
+              {resetUrl && (
+                <p className="auth-switch">
+                  <a href={resetUrl} target="_self" style={{color:"#2563eb",textDecoration:"underline",cursor:"pointer",display:"inline-block",position:"relative",zIndex:10}}>
+                    Open password reset link
+                  </a>
+                </p>
+              )}
+
+              <p className="auth-switch">
+                <button
+                  type="button"
+                  className="auth-link"
+                  onClick={() => {
+                    setMessage("");
+                    setAuthMode("login");
+                  }}
+                >
+                  Back to Login
+                </button>
+              </p>
+            </>
+          ) : authMode === "reset" ? (
+            <>
+              <p className="login-subtitle">Choose a new password</p>
+
+              <form onSubmit={handleResetPassword}>
+                <div className="input-group">
+                  <label htmlFor="reset-new-password">New Password</label>
+                  <input
+                    id="reset-new-password"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={resetNewPassword}
+                    onChange={(e) => setResetNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="reset-confirm-password">
+                    Confirm New Password
+                  </label>
+                  <input
+                    id="reset-confirm-password"
+                    type="password"
+                    placeholder="Enter the password again"
+                    value={resetConfirmPassword}
+                    onChange={(e) => setResetConfirmPassword(e.target.value)}
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="login-button"
+                  disabled={loading}
+                >
+                  {loading ? "Resetting password..." : "Reset Password"}
+                </button>
+              </form>
+
+              <p className="auth-switch">
+                <button
+                  type="button"
+                  className="auth-link"
+                  onClick={() => {
+                    setMessage("");
+                    setAuthMode("login");
+                  }}
+                >
+                  Back to Login
+                </button>
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="login-subtitle">Create your student account</p>
+
+              <form onSubmit={handleRegister}>
+                <div className="input-group">
+                  <label htmlFor="register-fullname">Full Name</label>
+                  <input
+                    id="register-fullname"
+                    type="text"
+                    placeholder="Enter your full name"
+                    value={registerFullName}
+                    onChange={(e) => setRegisterFullName(e.target.value)}
+                    autoComplete="name"
+                    minLength={2}
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="register-email">Email</label>
+                  <input
+                    id="register-email"
+                    type="email"
+                    placeholder="Enter your email"
+                    value={registerEmail}
+                    onChange={(e) => setRegisterEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="register-password">Password</label>
+                  <input
+                    id="register-password"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={registerPassword}
+                    onChange={(e) => setRegisterPassword(e.target.value)}
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="confirm-password">Confirm Password</label>
+                  <input
+                    id="confirm-password"
+                    type="password"
+                    placeholder="Enter the password again"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="login-button"
+                  disabled={loading}
+                >
+                  {loading ? "Creating account..." : "Create Account"}
+                </button>
+              </form>
+
+              <p className="auth-switch">
+                Already have an account?{" "}
+                <button
+                  type="button"
+                  className="auth-link"
+                  onClick={() => {
+                    setMessage("");
+                    setAuthMode("login");
+                  }}
+                >
+                  Back to Login
+                </button>
+              </p>
+            </>
+          )}
+
+          {message && (
+            <div className="login-message" role="status">
+              {message}
             </div>
-
-            <div className="input-group">
-              <label>Password</label>
-
-              <input
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            <button type="submit" className="login-button" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
-            </button>
-          </form>
-
-          {message && <div className="login-message">{message}</div>}
+          )}
         </div>
       </div>
     );
@@ -1885,6 +2385,62 @@ function App() {
                     rows="6"
                     required
                   />
+                </div>
+
+                {/* ATTACHMENTS */}
+                <div className="form-group">
+                  <label htmlFor="complaint-attachments">
+                    Attach Photos or PDF Documents (optional)
+                  </label>
+
+                  <input
+                    id="complaint-attachments"
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.pdf"
+                    multiple
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+
+                      if (files.length > 5) {
+                        setComplaintMessage("You can attach at most 5 files.");
+                        e.target.value = "";
+                        setComplaintFiles([]);
+                        return;
+                      }
+
+                      const tooLarge = files.some(
+                        (file) => file.size > 5 * 1024 * 1024,
+                      );
+
+                      if (tooLarge) {
+                        setComplaintMessage(
+                          "Each attachment must be 5 MB or smaller.",
+                        );
+                        e.target.value = "";
+                        setComplaintFiles([]);
+                        return;
+                      }
+
+                      setComplaintMessage("");
+                      setComplaintFiles(files);
+                    }}
+                  />
+
+                  <small>
+                    Select up to 5 files. JPEG, PNG, WebP, or PDF; maximum 5 MB
+                    per file.
+                  </small>
+
+                  {complaintFiles.length > 0 && (
+                    <ul>
+                      {complaintFiles.map((file, index) => (
+                        <li key={`${file.name}-${index}`}>
+                          {file.name} — {(file.size / (1024 * 1024)).toFixed(2)}{" "}
+                          MB
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
                 <div className="form-grid">

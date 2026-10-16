@@ -4,6 +4,8 @@ const {
   register,
   login,
   updateProfile,
+  forgotPassword,
+  resetPassword,
 } = require("../controllers/authController");
 
 const authenticateToken = require("../middleware/authMiddleware");
@@ -19,7 +21,8 @@ router.post("/register", register);
 
 // Login
 router.post("/login", login);
-
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 // Get currently authenticated user
 router.get("/me", authenticateToken, (req, res) => {
   res.json({
