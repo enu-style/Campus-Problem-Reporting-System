@@ -1,6 +1,7 @@
 const prisma = require("../config/prisma");
 const fs = require("fs");
 const path = require("path");
+const { sendComplaintStatusNotification } = require("../utils/email");
 // ======================================================
 // CHECK WHO CAN VIEW A COMPLAINT
 // ======================================================
@@ -77,6 +78,8 @@ const createComplaint = async (req, res) => {
       categoryId,
       locationId,
       locationDescription,
+      latitude,
+      longitude,
     } = req.body;
 
     // 1. Validate required text fields
@@ -198,7 +201,31 @@ const createComplaint = async (req, res) => {
       }
     }
 
-    // 7. Create complaint and initial history transactionally
+    // 7. Validate latitude and longitude (optional map coordinates)
+    let latitudeNumber = null;
+    let longitudeNumber = null;
+
+    if (latitude !== undefined && latitude !== null && latitude !== "") {
+      latitudeNumber = Number(latitude);
+      if (!Number.isFinite(latitudeNumber) || latitudeNumber < -90 || latitudeNumber > 90) {
+        return res.status(400).json({
+          success: false,
+          message: "Latitude must be a valid number between -90 and 90",
+        });
+      }
+    }
+
+    if (longitude !== undefined && longitude !== null && longitude !== "") {
+      longitudeNumber = Number(longitude);
+      if (!Number.isFinite(longitudeNumber) || longitudeNumber < -180 || longitudeNumber > 180) {
+        return res.status(400).json({
+          success: false,
+          message: "Longitude must be a valid number between -180 and 180",
+        });
+      }
+    }
+
+    // 8. Create complaint and initial history transactionally
     const result = await prisma.$transaction(async (tx) => {
       const complaint = await tx.complaint.create({
         data: {
@@ -210,10 +237,13 @@ const createComplaint = async (req, res) => {
 
           // Registered location OR custom location
           locationId: hasLocationId ? locationIdNumber : null,
-
           locationDescription: hasCustomLocation
             ? cleanLocationDescription
             : null,
+
+          // Map coordinates (optional)
+          latitude: latitudeNumber,
+          longitude: longitudeNumber,
         },
 
         include: {
@@ -763,6 +793,31 @@ const updateComplaintStatus = async (req, res) => {
       return complaint;
     });
 
+    // --------------------------------------------------
+    // Send email notification to the student
+    // --------------------------------------------------
+    try {
+      const changedByName = user.fullName || "A staff member";
+      const reporter = result.reporter;
+
+      if (reporter && reporter.email) {
+        await sendComplaintStatusNotification(
+          reporter.email,
+          reporter.fullName,
+          {
+            id: result.id,
+            title: result.title,
+            status: result.status,
+          },
+          changedByName,
+          cleanNote || null,
+        );
+      }
+    } catch (emailError) {
+      // Email failures should not fail the status update
+      console.error("Failed to send status notification email:", emailError.message);
+    }
+
     return res.json({
       success: true,
       message: "Complaint status updated successfully",
@@ -949,6 +1004,30 @@ const assignComplaint = async (req, res) => {
 
       return complaint;
     });
+
+    // --------------------------------------------------
+    // Send email notification to the student
+    // --------------------------------------------------
+    try {
+      const changedByName = user.fullName || "A staff member";
+      const reporter = result.reporter;
+
+      if (reporter && reporter.email) {
+        await sendComplaintStatusNotification(
+          reporter.email,
+          reporter.fullName,
+          {
+            id: result.id,
+            title: result.title,
+            status: result.status,
+          },
+          changedByName,
+          `Complaint assigned to ${department.name}`,
+        );
+      }
+    } catch (emailError) {
+      console.error("Failed to send assignment notification email:", emailError.message);
+    }
 
     return res.json({
       success: true,

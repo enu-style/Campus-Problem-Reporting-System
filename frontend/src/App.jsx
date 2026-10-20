@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMap,
+} from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 
 const API_URL = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api`;
 const roleMap = {
@@ -122,12 +130,44 @@ function App() {
     categoryId: "",
     locationId: "",
     locationDescription: "",
+    latitude: "",
+    longitude: "",
     priority: "MEDIUM",
   });
 
   // ======================================================
-  // SUPPORTING DATA
+  // MAP SELECTION STATE
   // ======================================================
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [mapCenter, setMapCenter] = useState([10.9897, 36.9335]); // Injibara approx
+  const [mapMarker, setMapMarker] = useState(null);
+
+  // ======================================================
+  // MAP CLICK LISTENER
+  // ======================================================
+  function MapClickListener() {
+    const map = useMap();
+
+    useEffect(() => {
+      const onClick = (e) => {
+        const { lat, lng } = e.latlng;
+        setMapCenter([lat, lng]);
+        setMapMarker([lat, lng]);
+        setComplaintForm((prev) => ({
+          ...prev,
+          latitude: lat.toFixed(6),
+          longitude: lng.toFixed(6),
+          locationId: "", // clear registered location when using map
+          locationDescription: "", // clear custom description when using map
+        }));
+      };
+
+      map.on("click", onClick);
+      return () => map.off("click", onClick);
+    }, [map]);
+
+    return null;
+  }
   const [categories, setCategories] = useState([]);
 
   const [locations, setLocations] = useState([]);
@@ -916,10 +956,11 @@ function App() {
 
     if (
       !complaintForm.locationId &&
-      !complaintForm.locationDescription.trim()
+      !complaintForm.locationDescription.trim() &&
+      !complaintForm.latitude
     ) {
       setComplaintMessage(
-        "Please select a registered location or enter a custom location.",
+        "Please select a registered location, enter a custom location, or pick a point on the map.",
       );
       return;
     }
@@ -939,6 +980,13 @@ function App() {
           "locationDescription",
           complaintForm.locationDescription.trim(),
         );
+      }
+
+      if (complaintForm.latitude) {
+        formData.append("latitude", complaintForm.latitude);
+      }
+      if (complaintForm.longitude) {
+        formData.append("longitude", complaintForm.longitude);
       }
 
       complaintFiles.forEach((file) => {
@@ -969,8 +1017,12 @@ function App() {
           categoryId: "",
           locationId: "",
           locationDescription: "",
+          latitude: "",
+          longitude: "",
           priority: "MEDIUM",
         });
+        setShowMapPicker(false);
+        setMapMarker(null);
 
         await loadComplaints();
 
@@ -2507,6 +2559,48 @@ function App() {
                     </small>
                   </div>
 
+                  {/* MAP PICKER */}
+                  <div className="form-group">
+                    <label>Map Location (optional)</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowMapPicker(!showMapPicker)}
+                      className="btn btn-outline-secondary"
+                    >
+                      {showMapPicker ? "Hide Map" : "Pick Location on Map"}
+                    </button>
+                    {showMapPicker && (
+                      <>
+                        <div className="map-container">
+                          <MapContainer
+                            center={mapCenter}
+                            zoom={15}
+                            style={{ height: "300px", width: "100%" }}
+                          >
+                            <TileLayer
+                              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                              attribution=
+                                "&© OpenStreetMap contributors"
+                            />
+                            {mapMarker && (
+                              <Marker position={mapMarker}>
+                                <Popup>
+                                  Selected location
+                                </Popup>
+                              </Marker>
+                            )}
+                            <MapClickListener />
+                          </MapContainer>
+                        </div>
+                        {complaintForm.latitude && complaintForm.longitude && (
+                          <small>
+                            Selected: {complaintForm.latitude}, {complaintForm.longitude}
+                          </small>
+                        )}
+                      </>
+                    )}
+                  </div>
+
                   {/* PRIORITY */}
                   <div className="form-group">
                     <label>Priority</label>
@@ -3127,9 +3221,13 @@ function ComplaintDetails({
 
           <p>{message}</p>
 
-          <button type="button" className="primary-button" onClick={onBack}>
-            ← Back to Complaints
-          </button>
+                    <button
+                      type="button"
+                      onClick={loadComplaint}
+                      className="btn btn-primary"
+                    >
+                      Try Again
+                    </button>
         </div>
       </section>
     );
