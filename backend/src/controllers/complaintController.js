@@ -2,6 +2,9 @@ const prisma = require("../config/prisma");
 const fs = require("fs");
 const path = require("path");
 const { sendComplaintStatusNotification } = require("../utils/email");
+const {
+  notifyComplaintParticipants,
+} = require("./notificationController");
 // ======================================================
 // CHECK WHO CAN VIEW A COMPLAINT
 // ======================================================
@@ -139,12 +142,17 @@ const createComplaint = async (req, res) => {
 
     const hasCustomLocation = cleanLocationDescription.length > 0;
 
-    // Exactly one location choice is required
-    if (hasLocationId === hasCustomLocation) {
+    // Map coordinates are also a valid location choice
+    const hasCoordinates =
+      (latitude !== undefined && latitude !== null && latitude !== "") ||
+      (longitude !== undefined && longitude !== null && longitude !== "");
+
+    // At least one location choice is required
+    if (!hasLocationId && !hasCustomLocation && !hasCoordinates) {
       return res.status(400).json({
         success: false,
         message:
-          "Select a registered location OR provide a custom location description",
+          "Select a registered location, provide a custom location description, or pick a point on the map",
       });
     }
 
@@ -201,11 +209,25 @@ const createComplaint = async (req, res) => {
       }
     }
 
-    // 7. Validate latitude and longitude (optional map coordinates)
+    // 7. Validate latitude and longitude (map coordinates)
     let latitudeNumber = null;
     let longitudeNumber = null;
 
-    if (latitude !== undefined && latitude !== null && latitude !== "") {
+    if (hasCoordinates) {
+      if (latitude === undefined || latitude === null || latitude === "") {
+        return res.status(400).json({
+          success: false,
+          message: "Latitude is required when coordinates are provided",
+        });
+      }
+
+      if (longitude === undefined || longitude === null || longitude === "") {
+        return res.status(400).json({
+          success: false,
+          message: "Longitude is required when coordinates are provided",
+        });
+      }
+
       latitudeNumber = Number(latitude);
       if (!Number.isFinite(latitudeNumber) || latitudeNumber < -90 || latitudeNumber > 90) {
         return res.status(400).json({
@@ -213,9 +235,7 @@ const createComplaint = async (req, res) => {
           message: "Latitude must be a valid number between -90 and 90",
         });
       }
-    }
 
-    if (longitude !== undefined && longitude !== null && longitude !== "") {
       longitudeNumber = Number(longitude);
       if (!Number.isFinite(longitudeNumber) || longitudeNumber < -180 || longitudeNumber > 180) {
         return res.status(400).json({
@@ -346,20 +366,41 @@ const getComplaints = async (req, res) => {
       });
     }
 
-    const complaints = await prisma.complaint.findMany({
-      where,
-      include: {
-        category: true,
-        location: true,
-        department: true,
-        reporter: {
-          select: { id: true, fullName: true, email: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const pageSize = Math.min(
+      50,
+      Math.max(1, Number(req.query.pageSize) || 20),
+    );
 
-    return res.json({ success: true, complaints });
+    const [complaints, total] = await Promise.all([
+      prisma.complaint.findMany({
+        where,
+        include: {
+          category: true,
+          location: true,
+          department: true,
+          reporter: {
+            select: { id: true, fullName: true, email: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+
+      prisma.complaint.count({ where }),
+    ]);
+
+    return res.json({
+      success: true,
+      complaints,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    });
   } catch (error) {
     console.error("Get complaints error:", error);
     return res.status(500).json({
@@ -449,6 +490,8 @@ const getComplaintById = async (req, res) => {
             },
           },
         },
+
+        attachments: true,
       },
     });
 
@@ -466,16 +509,6 @@ const getComplaintById = async (req, res) => {
         message: "You do not have permission to view this complaint",
       });
     }
-    // Students can view only their own complaints
-    // if (
-    //   req.user.roleName === "STUDENT" &&
-    //   complaint.reportedById !== req.user.userId
-    // ) {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: "You do not have permission to view this complaint",
-    //   });
-    // }
 
     return res.json({
       success: true,
@@ -641,18 +674,10 @@ const updateComplaintStatus = async (req, res) => {
     // ==================================================
     // ROLE-BASED PERMISSION RULES
     // ==================================================
+    // (STUDENT is blocked by the route-level requireRole
+    // middleware and can never reach this controller.)
 
     const roleName = user.role.name;
-
-    // --------------------------------------------------
-    // STUDENTS
-    // --------------------------------------------------
-    if (roleName === "STUDENT") {
-      return res.status(403).json({
-        success: false,
-        message: "Students cannot update complaint status",
-      });
-    }
 
     // --------------------------------------------------
     // DEPARTMENT OFFICERS
@@ -746,76 +771,128 @@ const updateComplaintStatus = async (req, res) => {
     }
 
     // --------------------------------------------------
-    // Clean note
+    // ASSIGNED requires a department. Without one the
+    // complaint would be invisible to every officer.
     // --------------------------------------------------
-    const cleanNote =
+    if (status === "ASSIGNED" && !existingComplaint.departmentId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "A department must be assigned before the status can be set to ASSIGNED",
+      });
+    }
+
+    // --------------------------------------------------
+    // REJECTED requires a reason
+    // --------------------------------------------------
+    const cleanNoteRaw =
       typeof note === "string" && note.trim() ? note.trim() : null;
+
+    if (status === "REJECTED" && !cleanNoteRaw) {
+      return res.status(400).json({
+        success: false,
+        message: "A reason (note) is required when rejecting a complaint",
+      });
+    }
+
+    const cleanNote = cleanNoteRaw;
 
     // ==================================================
     // UPDATE + HISTORY ATOMICALLY
+    // The updateMany with the current status in the where
+    // clause prevents a race condition: if another user
+    // changed the status first, this update matches zero
+    // rows and the transition is safely rejected.
     // ==================================================
-    const result = await prisma.$transaction(async (tx) => {
-      const complaint = await tx.complaint.update({
-        where: {
-          id: complaintId,
-        },
+    const raced = await prisma.complaint.updateMany({
+      where: {
+        id: complaintId,
+        status: currentStatus,
+      },
 
-        data: {
-          status,
-        },
+      data: {
+        status,
+      },
+    });
 
-        include: {
-          category: true,
-          location: true,
-          department: true,
+    if (raced.count !== 1) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "This complaint was just updated by someone else. Refresh and try again.",
+      });
+    }
 
-          reporter: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-            },
+    const complaint = await prisma.complaint.update({
+      where: {
+        id: complaintId,
+      },
+
+      data: {
+        status,
+      },
+
+      include: {
+        category: true,
+        location: true,
+        department: true,
+
+        reporter: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
           },
         },
-      });
+      },
+    });
 
-      // Create status history
-      await tx.complaintStatusHistory.create({
-        data: {
-          complaintId,
-          oldStatus: currentStatus,
-          newStatus: status,
-          changedById: req.user.userId,
-          note: cleanNote,
-        },
-      });
+    // Create status history
+    await prisma.complaintStatusHistory.create({
+      data: {
+        complaintId,
+        oldStatus: currentStatus,
+        newStatus: status,
+        changedById: req.user.userId,
+        note: cleanNote,
+      },
+    });
 
-      return complaint;
+    const result = complaint;
+
+    // Real notification for the reporter and other participants
+    await notifyComplaintParticipants({
+      complaintId,
+      actorId: req.user.userId,
+      type: "STATUS_CHANGED",
+      message: `Complaint #${complaintId} ("${complaint.title}") moved to ${status} by ${user.fullName || "staff"}.`,
     });
 
     // --------------------------------------------------
-    // Send email notification to the student
+    // Send email notification to the student (non-blocking:
+    // a slow mail server must not delay the API response)
     // --------------------------------------------------
-    try {
-      const changedByName = user.fullName || "A staff member";
-      const reporter = result.reporter;
+    const changedByName = user.fullName || "A staff member";
+    const reporter = result.reporter;
 
-      if (reporter && reporter.email) {
-        await sendComplaintStatusNotification(
-          reporter.email,
-          reporter.fullName,
-          {
-            id: result.id,
-            title: result.title,
-            status: result.status,
-          },
-          changedByName,
-          cleanNote || null,
+    if (reporter && reporter.email) {
+      sendComplaintStatusNotification(
+        reporter.email,
+        reporter.fullName,
+        {
+          id: result.id,
+          title: result.title,
+          status: result.status,
+        },
+        changedByName,
+        cleanNote || null,
+      ).catch((emailError) => {
+        // Email failures should not fail the status update
+        console.error(
+          "Failed to send status notification email:",
+          emailError.message,
         );
-      }
-    } catch (emailError) {
-      // Email failures should not fail the status update
-      console.error("Failed to send status notification email:", emailError.message);
+      });
     }
 
     return res.json({
@@ -925,6 +1002,21 @@ const assignComplaint = async (req, res) => {
     }
 
     // --------------------------------------------------
+    // Only complaints waiting for review, under review,
+    // or already assigned can be (re)assigned. Once an
+    // officer has started work (IN_PROGRESS, RESOLVED)
+    // reassignment would silently reset the workflow.
+    // --------------------------------------------------
+    if (
+      !["PENDING", "REVIEWED", "ASSIGNED"].includes(existingComplaint.status)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: `A complaint with status ${existingComplaint.status} cannot be assigned. Only PENDING, REVIEWED, or ASSIGNED complaints can be assigned.`,
+      });
+    }
+
+    // --------------------------------------------------
     // Prevent unnecessary assignment
     // --------------------------------------------------
     if (
@@ -1006,27 +1098,36 @@ const assignComplaint = async (req, res) => {
     });
 
     // --------------------------------------------------
-    // Send email notification to the student
+    // Send email notification to the student (non-blocking)
     // --------------------------------------------------
-    try {
-      const changedByName = user.fullName || "A staff member";
-      const reporter = result.reporter;
+    const changedByName = user.fullName || "A staff member";
+    const reporter = result.reporter;
 
-      if (reporter && reporter.email) {
-        await sendComplaintStatusNotification(
-          reporter.email,
-          reporter.fullName,
-          {
-            id: result.id,
-            title: result.title,
-            status: result.status,
-          },
-          changedByName,
-          `Complaint assigned to ${department.name}`,
+    // Real notification: the complaint now belongs to a department
+    await notifyComplaintParticipants({
+      complaintId,
+      actorId: req.user.userId,
+      type: "COMPLAINT_ASSIGNED",
+      message: `Complaint #${complaintId} ("${existingComplaint.title}") was assigned to ${department.name}.`,
+    });
+
+    if (reporter && reporter.email) {
+      sendComplaintStatusNotification(
+        reporter.email,
+        reporter.fullName,
+        {
+          id: result.id,
+          title: result.title,
+          status: result.status,
+        },
+        changedByName,
+        `Complaint assigned to ${department.name}`,
+      ).catch((emailError) => {
+        console.error(
+          "Failed to send assignment notification email:",
+          emailError.message,
         );
-      }
-    } catch (emailError) {
-      console.error("Failed to send assignment notification email:", emailError.message);
+      });
     }
 
     return res.json({
@@ -1124,6 +1225,231 @@ const downloadComplaintAttachment = async (req, res) => {
   }
 };
 
+// ==================================================
+// STUDENT CONFIRM / REOPEN
+// Students confirm a resolved complaint as CLOSED, or
+// reopen it if it was not actually fixed.
+// ==================================================
+const confirmComplaint = async (req, res) => {
+  try {
+    const complaintId = Number.parseInt(req.params.id, 10);
+
+    if (!Number.isInteger(complaintId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid complaint ID",
+      });
+    }
+
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+    });
+
+    if (!complaint) {
+      return res.status(404).json({
+        success: false,
+        message: "Complaint not found",
+      });
+    }
+
+    if (complaint.reportedById !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only confirm your own complaints",
+      });
+    }
+
+    if (complaint.status !== "RESOLVED") {
+      return res.status(400).json({
+        success: false,
+        message: "Only resolved complaints can be confirmed as closed",
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.complaint.update({
+        where: { id: complaintId },
+        data: { status: "CLOSED" },
+      });
+
+      await tx.complaintStatusHistory.create({
+        data: {
+          complaintId,
+          oldStatus: "RESOLVED",
+          newStatus: "CLOSED",
+          changedById: req.user.userId,
+          note: "Confirmed by student",
+        },
+      });
+
+      return result;
+    });
+
+    // Notify staff that the student accepted the resolution.
+    await notifyComplaintParticipants({
+      complaintId,
+      actorId: req.user.userId,
+      type: "COMPLAINT_CONFIRMED",
+      message: `Student confirmed complaint #${complaintId} as resolved.`,
+    });
+
+    return res.json({
+      success: true,
+      message: "Complaint confirmed and closed",
+      complaint: updated,
+    });
+  } catch (error) {
+    console.error("Confirm complaint error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while confirming complaint",
+    });
+  }
+};
+
+// ==================================================
+// REOPEN A COMPLAINT
+// ==================================================
+const reopenComplaint = async (req, res) => {
+  try {
+    const complaintId = Number.parseInt(req.params.id, 10);
+
+    if (!Number.isInteger(complaintId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid complaint ID",
+      });
+    }
+
+    const reopenReason =
+      typeof req.body?.reopenReason === "string"
+        ? req.body.reopenReason.trim()
+        : "";
+
+    if (reopenReason.length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a reason of at least 10 characters",
+      });
+    }
+
+    const complaint = await prisma.complaint.findUnique({
+      where: { id: complaintId },
+    });
+
+    if (!complaint) {
+      return res.status(404).json({
+        success: false,
+        message: "Complaint not found",
+      });
+    }
+
+    if (complaint.reportedById !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only reopen your own complaints",
+      });
+    }
+
+    const reopenableStatuses = ["RESOLVED", "CLOSED", "IN_PROGRESS"];
+
+    if (!reopenableStatuses.includes(complaint.status)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Only resolved, closed or in-progress complaints can be reopened",
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.complaint.update({
+        where: { id: complaintId },
+        data: { status: "REOPENED" },
+      });
+
+      await tx.complaintStatusHistory.create({
+        data: {
+          complaintId,
+          oldStatus: complaint.status,
+          newStatus: "REOPENED",
+          changedById: req.user.userId,
+          note: reopenReason,
+        },
+      });
+
+      return result;
+    });
+
+    // Notify assigned staff that the complaint was reopened.
+    await notifyComplaintParticipants({
+      complaintId,
+      actorId: req.user.userId,
+      type: "COMPLAINT_REOPENED",
+      message: `Complaint #${complaintId} was reopened by the student: ${reopenReason}`,
+    });
+
+    return res.json({
+      success: true,
+      message: "Complaint reopened",
+      complaint: updated,
+    });
+  } catch (error) {
+    console.error("Reopen complaint error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while reopening complaint",
+    });
+  }
+};
+
+// ==================================================
+// STATS FOR THE CURRENT USER
+// ==================================================
+const getComplaintStats = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const role = req.user.role;
+
+    const baseWhere =
+      role === "STUDENT"
+        ? { reportedById: userId }
+        : role === "DEPARTMENT_OFFICER"
+          ? { departmentId: req.user.departmentId ?? undefined }
+          : {};
+
+    const grouped = await prisma.complaint.groupBy({
+      by: ["status"],
+      _count: { _all: true },
+      where: baseWhere,
+    });
+
+    const counts = {};
+    let total = 0;
+
+    for (const group of grouped) {
+      counts[group.status] = group._count._all;
+      total += group._count._all;
+    }
+
+    return res.json({
+      success: true,
+      stats: {
+        total,
+        counts,
+      },
+    });
+  } catch (error) {
+    console.error("Get complaint stats error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while loading stats",
+    });
+  }
+};
+
 // ======================================================
 // EXPORT CONTROLLERS
 // ======================================================
@@ -1135,5 +1461,9 @@ module.exports = {
   getComplaintStatusHistory,
   updateComplaintStatus,
   assignComplaint,
+  confirmComplaint,
+  reopenComplaint,
+  getComplaintStats,
   downloadComplaintAttachment,
+  canViewComplaint,
 };

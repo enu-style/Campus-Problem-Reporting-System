@@ -10,10 +10,19 @@ const {
   getComplaintStatusHistory,
   updateComplaintStatus,
   assignComplaint,
+  confirmComplaint,
+  reopenComplaint,
+  getComplaintStats,
   downloadComplaintAttachment,
 } = require("../controllers/complaintController");
 
+const {
+  getMyNotifications,
+  markNotificationsRead,
+} = require("../controllers/notificationController");
+
 const authenticateToken = require("../middleware/authMiddleware");
+const { getComplaintAssistance } = require("../controllers/aiController");
 
 const router = express.Router();
 
@@ -21,6 +30,9 @@ const router = express.Router();
 // CREATE A NEW COMPLAINT
 // ======================================================
 router.post("/", authenticateToken, handleComplaintUpload, createComplaint);
+
+// Analyze a complaint without saving it
+router.post("/ai-assistance", authenticateToken, getComplaintAssistance);
 
 // ======================================================
 // GET COMPLAINTS REPORTED BY LOGGED-IN USER
@@ -56,6 +68,35 @@ router.get(
   downloadComplaintAttachment,
 );
 router.get("/:id/history", authenticateToken, getComplaintStatusHistory);
+
+// ======================================================
+// STUDENT CONFIRM / REOPEN
+// ======================================================
+router.patch(
+  "/:id/confirm",
+  authenticateToken,
+  requireRole("STUDENT"),
+  confirmComplaint,
+);
+
+router.patch(
+  "/:id/reopen",
+  authenticateToken,
+  requireRole("STUDENT"),
+  reopenComplaint,
+);
+
+// ======================================================
+// NOTIFICATIONS
+// ======================================================
+router.get("/notifications", authenticateToken, getMyNotifications);
+
+router.post("/notifications/read", authenticateToken, markNotificationsRead);
+
+// ======================================================
+// STATS
+// ======================================================
+router.get("/stats", authenticateToken, getComplaintStats);
 
 // ======================================================
 // GET ONE COMPLAINT BY ID

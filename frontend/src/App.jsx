@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import "./App.css";
+import AuthPage from "./pages/AuthPage";
+import ComplaintsPage from "./pages/ComplaintsPage";
+import DashboardPage from "./pages/DashboardPage";
 import {
   MapContainer,
   TileLayer,
@@ -9,6 +19,26 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
+import { AppContext } from "./AppContext";
+import {
+  IconHome,
+  IconList,
+  IconPlus,
+  IconGrid,
+  IconUsers,
+  IconChart,
+  IconUser,
+  IconLogout,
+  IconBell,
+  IconClose,
+  IconMenu,
+  IconCheck,
+  IconAlert,
+  IconClock,
+  IconEdit,
+  IconSave,
+} from "./components/Icons";
+
 const API_URL = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api`;
 const roleMap = {
   1: "STUDENT",
@@ -16,6 +46,9 @@ const roleMap = {
   3: "DEPARTMENT_OFFICER",
   4: "ADMINISTRATOR",
 };
+
+// Keep roleMap only as a fallback for records that predate /auth/me
+// including role info; the live role always comes from user.role.name.
 
 const statusOptions = [
   "PENDING",
@@ -25,7 +58,31 @@ const statusOptions = [
   "RESOLVED",
   "CLOSED",
   "REJECTED",
+  "REOPENED",
 ];
+
+// Which status can follow another status. Mirrors the backend
+// ALLOWED_TRANSITIONS map so the dropdown only offers valid moves.
+const ALLOWED_TRANSITIONS = {
+  PENDING: ["REVIEWED", "ASSIGNED", "REJECTED"],
+  REVIEWED: ["ASSIGNED", "REJECTED"],
+  ASSIGNED: ["IN_PROGRESS", "REJECTED"],
+  IN_PROGRESS: ["RESOLVED", "REJECTED"],
+  RESOLVED: ["CLOSED"],
+  CLOSED: [],
+  REJECTED: [],
+  REOPENED: ["IN_PROGRESS", "REJECTED"],
+};
+
+// Which roles may perform each transition. Mirrors the backend rules.
+const TRANSITION_ROLES = {
+  REVIEWED: ["STAFF", "ADMINISTRATOR"],
+  ASSIGNED: ["STAFF", "ADMINISTRATOR"],
+  IN_PROGRESS: ["STAFF", "DEPARTMENT_OFFICER", "ADMINISTRATOR"],
+  RESOLVED: ["STAFF", "DEPARTMENT_OFFICER", "ADMINISTRATOR"],
+  CLOSED: ["STAFF", "ADMINISTRATOR"],
+  REJECTED: ["STAFF", "DEPARTMENT_OFFICER", "ADMINISTRATOR"],
+};
 
 const roleOptions = [
   { id: 1, name: "STUDENT" },
@@ -34,7 +91,26 @@ const roleOptions = [
   { id: 4, name: "ADMINISTRATOR" },
 ];
 
-function App() {
+// ============================================================
+// MAP CLICK LISTENER (defined outside App so it is not
+// re-created â€” and the map not re-mounted â€” on every render)
+// ============================================================
+function MapClickListener({ onMapClick }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const onClick = (e) => {
+      onMapClick(e.latlng.lat, e.latlng.lng);
+    };
+
+    map.on("click", onClick);
+    return () => map.off("click", onClick);
+  }, [map, onMapClick]);
+
+  return null;
+}
+
+function AppShell() {
   // ======================================================
   // AUTHENTICATION
   // ======================================================
@@ -58,6 +134,21 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // ==================================================
+  // MAP CLICK HANDLER (stable, passed to MapClickListener)
+  // ==================================================
+  const handleMapClick = (lat, lng) => {
+    setMapCenter([lat, lng]);
+    setMapMarker([lat, lng]);
+    setComplaintForm((prev) => ({
+      ...prev,
+      latitude: lat.toFixed(6),
+      longitude: lng.toFixed(6),
+      locationId: "", // clear registered location when using map
+      locationDescription: "", // clear custom description when using map
+    }));
+  };
 
   // ======================================================
   // COMPLAINT DETAILS
@@ -124,6 +215,10 @@ function App() {
   // ======================================================
   const [complaintMessage, setComplaintMessage] = useState("");
   const [complaintFiles, setComplaintFiles] = useState([]);
+  // AI COMPLAINT ASSISTANCE
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAssistance, setAiAssistance] = useState(null);
+  const [aiMessage, setAiMessage] = useState("");
   const [complaintForm, setComplaintForm] = useState({
     title: "",
     description: "",
@@ -142,32 +237,6 @@ function App() {
   const [mapCenter, setMapCenter] = useState([10.9897, 36.9335]); // Injibara approx
   const [mapMarker, setMapMarker] = useState(null);
 
-  // ======================================================
-  // MAP CLICK LISTENER
-  // ======================================================
-  function MapClickListener() {
-    const map = useMap();
-
-    useEffect(() => {
-      const onClick = (e) => {
-        const { lat, lng } = e.latlng;
-        setMapCenter([lat, lng]);
-        setMapMarker([lat, lng]);
-        setComplaintForm((prev) => ({
-          ...prev,
-          latitude: lat.toFixed(6),
-          longitude: lng.toFixed(6),
-          locationId: "", // clear registered location when using map
-          locationDescription: "", // clear custom description when using map
-        }));
-      };
-
-      map.on("click", onClick);
-      return () => map.off("click", onClick);
-    }, [map]);
-
-    return null;
-  }
   const [categories, setCategories] = useState([]);
 
   const [locations, setLocations] = useState([]);
@@ -211,7 +280,7 @@ function App() {
   // ======================================================
   // USER ROLE
   // ======================================================
-  const role = roleMap[user?.roleId] || "";
+  const role = user?.role?.name || roleMap[user?.roleId] || "";
 
   const isStudent = role === "STUDENT";
 
@@ -220,6 +289,38 @@ function App() {
   const isOfficer = role === "DEPARTMENT_OFFICER";
 
   const isAdmin = role === "ADMINISTRATOR";
+
+  // ======================================================
+  // ROUTING (react-router)
+  // ======================================================
+  const navigateFn = useNavigate();
+  const location = useLocation();
+
+  const navigate = (path) => {
+    navigateFn(path);
+    setSidebarOpen(false);
+  };
+
+  // Keep activePage in sync with the URL
+  useEffect(() => {
+    const routeToPage = {
+      "/": "dashboard",
+      "/dashboard": "dashboard",
+      "/complaints": "complaints",
+      "/complaint-details": "complaint-details",
+      "/new-complaint": "new-complaint",
+      "/departments": "departments",
+      "/users": "users",
+      "/reports": "reports",
+      "/profile": "profile",
+    };
+
+    const page = routeToPage[location.pathname];
+
+    if (page) {
+      setActivePage(page);
+    }
+  }, [location.pathname]);
 
   // ======================================================
   // INITIAL LOADING
@@ -341,10 +442,6 @@ function App() {
 
       const historyData = await historyResponse.json();
 
-      console.log("Complaint details:", complaintData);
-
-      console.log("Complaint history:", historyData);
-
       if (!complaintResponse.ok || !complaintData.success) {
         setDetailsMessage(
           complaintData.message || "Failed to load complaint details.",
@@ -444,6 +541,42 @@ function App() {
   };
 
   // ======================================================
+  // DOWNLOAD ATTACHMENT (authenticated, blob download)
+  // ======================================================
+  const handleDownloadAttachment = async (complaintId, attachment) => {
+    try {
+      const response = await fetch(
+        `${API_URL}/complaints/${complaintId}/attachments/${attachment.id}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to download the attachment.");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.originalName || "attachment";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Attachment download error:", error);
+      setDetailsMessage(
+        error.message || "Cannot download the attachment right now.",
+      );
+    }
+  };
+
+  // ======================================================
   // CLOSE COMPLAINT DETAILS
   // ======================================================
   const closeComplaintDetails = () => {
@@ -456,7 +589,7 @@ function App() {
 
     setDetailsMessage("");
 
-    setActivePage("complaints");
+    setActivePage("complaints"); navigate("/complaints");
   };
 
   // ======================================================
@@ -716,8 +849,6 @@ function App() {
 
       const data = await response.json();
 
-      console.log("LOGIN RESPONSE:", data);
-
       if (data.success) {
         localStorage.setItem("token", data.token);
 
@@ -901,6 +1032,7 @@ function App() {
     setPassword("");
 
     setActivePage("dashboard");
+    navigate("/");
     setSidebarOpen(false);
     setShowNotifications(false);
   };
@@ -929,6 +1061,48 @@ function App() {
 
       return updated;
     });
+  };
+  // ======================================================
+  // AI COMPLAINT ASSISTANCE
+  // ======================================================
+  const handleAIComplaintAssistance = async () => {
+    setAiMessage("");
+    setAiAssistance(null);
+
+    if (!complaintForm.title.trim() || !complaintForm.description.trim()) {
+      setAiMessage("Enter both the complaint title and description first.");
+      return;
+    }
+
+    try {
+      setAiLoading(true);
+
+      const response = await fetch(`${API_URL}/complaints/ai-assistance`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: complaintForm.title.trim(),
+          description: complaintForm.description.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setAiMessage(data.message || "Unable to analyze the complaint.");
+        return;
+      }
+
+      setAiAssistance(data);
+    } catch (error) {
+      console.error("AI complaint assistance error:", error);
+      setAiMessage("Cannot connect to the server. Please try again.");
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   // ======================================================
@@ -1028,6 +1202,7 @@ function App() {
 
         setTimeout(() => {
           setActivePage("complaints");
+          navigate("/complaints");
 
           setComplaintMessage("");
         }, 1200);
@@ -1204,6 +1379,92 @@ function App() {
       console.error("Status update error:", error);
 
       setActionMessage("Cannot connect to server.");
+    }
+  };
+
+  // ======================================================
+  // STUDENT CONFIRM COMPLAINT (RESOLVED â†’ CLOSED)
+  // ======================================================
+  const handleConfirmComplaint = async (complaintId) => {
+    setActionMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/complaints/${complaintId}/confirm`,
+        {
+          method: "PATCH",
+
+          headers: {
+            "Content-Type": "application/json",
+
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      const data = await response.json();
+
+      if (data.success) {
+        setActionMessage("Complaint confirmed as resolved. Thank you!");
+
+        await loadComplaints();
+
+        if (selectedComplaint?.id === complaintId) {
+          await loadComplaintDetails(complaintId);
+        }
+      } else {
+        setActionMessage(data.message || "Failed to confirm the complaint.");
+      }
+    } catch (error) {
+      console.error("Confirm complaint error:", error);
+
+      setActionMessage("Cannot connect to server.");
+    }
+  };
+
+  // ======================================================
+  // STUDENT REOPEN COMPLAINT (â†’ REOPENED with reason)
+  // ======================================================
+  const handleReopenComplaint = async (complaintId, reopenReason) => {
+    setActionMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/complaints/${complaintId}/reopen`,
+        {
+          method: "PATCH",
+
+          headers: {
+            "Content-Type": "application/json",
+
+            Authorization: `Bearer ${token}`,
+          },
+
+          body: JSON.stringify({ reopenReason }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (data.success) {
+        setActionMessage("Complaint reopened. The department was notified.");
+
+        await loadComplaints();
+
+        if (selectedComplaint?.id === complaintId) {
+          await loadComplaintDetails(complaintId);
+        }
+
+        return true;
+      }
+
+      setActionMessage(data.message || "Failed to reopen the complaint.");
+      return false;
+    } catch (error) {
+      console.error("Reopen complaint error:", error);
+
+      setActionMessage("Cannot connect to server.");
+      return false;
     }
   };
 
@@ -1504,405 +1765,86 @@ function App() {
   };
 
   // ======================================================
-  // LOGIN SCREEN
+  // CONTEXT VALUE shared with the routed pages
   // ======================================================
+  const contextValue = {
+    // auth
+    authMode,
+    setAuthMode,
+    email,
+    setEmail,
+    password,
+    setPassword,
+    message,
+    loading,
+    handleLogin,
+    handleRegister,
+    handleForgotPassword,
+    handleResetPassword,
+    forgotEmail,
+    setForgotEmail,
+    registerFullName,
+    setRegisterFullName,
+    registerEmail,
+    setRegisterEmail,
+    registerPassword,
+    setRegisterPassword,
+    confirmPassword,
+    setConfirmPassword,
+    resetNewPassword,
+    setResetNewPassword,
+    resetConfirmPassword,
+    setResetConfirmPassword,
+    // user + roles
+    user,
+    role,
+    isStudent,
+    isStaff,
+    isOfficer,
+    isAdmin,
+    // complaints
+    complaints,
+    complaintLoading,
+    loadComplaints,
+    loadComplaintDetails,
+    filteredComplaints,
+    categories,
+    locations,
+    departments,
+    selectedDepartments,
+    setSelectedDepartments,
+    selectedStatuses,
+    setSelectedStatuses,
+    handleAssignComplaint,
+    handleUpdateStatus,
+    handleConfirmComplaint,
+    handleReopenComplaint,
+    actionMessage,
+    // filters
+    searchTerm,
+    setSearchTerm,
+    statusFilter,
+    setStatusFilter,
+    priorityFilter,
+    setPriorityFilter,
+    // nav
+    navigate,
+  };
 
-  // ======================================================
-  // LOGIN AND STUDENT REGISTRATION SCREEN
-  // ======================================================
   if (!token) {
     return (
-      <div className="login-page">
-        <div className="login-background-shape shape-one"></div>
-        <div className="login-background-shape shape-two"></div>
-
-        <div className="login-card">
-          <img
-            src="/images/injibara-university-logo.png"
-            alt="Injibara University Logo"
-            className="university-logo"
-          />
-
-          <h1>Campus Reporting System</h1>
-
-          {authMode === "login" ? (
-            <>
-              <p className="login-subtitle">Sign in to your account</p>
-
-              <form onSubmit={handleLogin}>
-                <div className="input-group">
-                  <label htmlFor="login-email">Email</label>
-                  <input
-                    id="login-email"
-                    type="email"
-                    placeholder="Enter your email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="login-password">Password</label>
-                  <input
-                    id="login-password"
-                    type="password"
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="login-button"
-                  disabled={loading}
-                >
-                  {loading ? "Signing in..." : "Sign In"}
-                </button>
-              </form>
-
-              <p className="auth-switch">
-                <button
-                  type="button"
-                  className="auth-link"
-                  onClick={() => {
-                    setForgotEmail(email);
-                    setResetUrl("");
-                    setMessage("");
-                    setAuthMode("forgot");
-                  }}
-                >
-                  Forgot your password?
-                </button>
-              </p>
-
-              <p className="auth-switch">
-                Don't have an account?{" "}
-                <button
-                  type="button"
-                  className="auth-link"
-                  onClick={() => {
-                    setMessage("");
-                    setAuthMode("register");
-                  }}
-                >
-                  Register as a student
-                </button>
-              </p>
-            </>
-          ) : authMode === "forgot" ? (
-            <>
-              <p className="login-subtitle">Reset your password</p>
-
-              <form onSubmit={handleForgotPassword}>
-                <div className="input-group">
-                  <label htmlFor="forgot-email">Email</label>
-                  <input
-                    id="forgot-email"
-                    type="email"
-                    placeholder="Enter your account email"
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    autoComplete="email"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="login-button"
-                  disabled={loading}
-                >
-                  {loading ? "Requesting link..." : "Get Reset Link"}
-                </button>
-              </form>
-
-              {resetUrl && (
-                <p className="auth-switch">
-                  <a href={resetUrl} target="_self" style={{color:"#2563eb",textDecoration:"underline",cursor:"pointer",display:"inline-block",position:"relative",zIndex:10}}>
-                    Open password reset link
-                  </a>
-                </p>
-              )}
-
-              <p className="auth-switch">
-                <button
-                  type="button"
-                  className="auth-link"
-                  onClick={() => {
-                    setMessage("");
-                    setAuthMode("login");
-                  }}
-                >
-                  Back to Login
-                </button>
-              </p>
-            </>
-          ) : authMode === "reset" ? (
-            <>
-              <p className="login-subtitle">Choose a new password</p>
-
-              <form onSubmit={handleResetPassword}>
-                <div className="input-group">
-                  <label htmlFor="reset-new-password">New Password</label>
-                  <input
-                    id="reset-new-password"
-                    type="password"
-                    placeholder="At least 8 characters"
-                    value={resetNewPassword}
-                    onChange={(e) => setResetNewPassword(e.target.value)}
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="reset-confirm-password">
-                    Confirm New Password
-                  </label>
-                  <input
-                    id="reset-confirm-password"
-                    type="password"
-                    placeholder="Enter the password again"
-                    value={resetConfirmPassword}
-                    onChange={(e) => setResetConfirmPassword(e.target.value)}
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="login-button"
-                  disabled={loading}
-                >
-                  {loading ? "Resetting password..." : "Reset Password"}
-                </button>
-              </form>
-
-              <p className="auth-switch">
-                <button
-                  type="button"
-                  className="auth-link"
-                  onClick={() => {
-                    setMessage("");
-                    setAuthMode("login");
-                  }}
-                >
-                  Back to Login
-                </button>
-              </p>
-            </>
-          ) : authMode === "forgot" ? (
-            <>
-              <p className="login-subtitle">Reset your password</p>
-
-              <form onSubmit={handleForgotPassword}>
-                <div className="input-group">
-                  <label htmlFor="forgot-email">Email</label>
-                  <input
-                    id="forgot-email"
-                    type="email"
-                    placeholder="Enter your account email"
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    autoComplete="email"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="login-button"
-                  disabled={loading}
-                >
-                  {loading ? "Requesting link..." : "Get Reset Link"}
-                </button>
-              </form>
-
-              {resetUrl && (
-                <p className="auth-switch">
-                  <a href={resetUrl} target="_self" style={{color:"#2563eb",textDecoration:"underline",cursor:"pointer",display:"inline-block",position:"relative",zIndex:10}}>
-                    Open password reset link
-                  </a>
-                </p>
-              )}
-
-              <p className="auth-switch">
-                <button
-                  type="button"
-                  className="auth-link"
-                  onClick={() => {
-                    setMessage("");
-                    setAuthMode("login");
-                  }}
-                >
-                  Back to Login
-                </button>
-              </p>
-            </>
-          ) : authMode === "reset" ? (
-            <>
-              <p className="login-subtitle">Choose a new password</p>
-
-              <form onSubmit={handleResetPassword}>
-                <div className="input-group">
-                  <label htmlFor="reset-new-password">New Password</label>
-                  <input
-                    id="reset-new-password"
-                    type="password"
-                    placeholder="At least 8 characters"
-                    value={resetNewPassword}
-                    onChange={(e) => setResetNewPassword(e.target.value)}
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="reset-confirm-password">
-                    Confirm New Password
-                  </label>
-                  <input
-                    id="reset-confirm-password"
-                    type="password"
-                    placeholder="Enter the password again"
-                    value={resetConfirmPassword}
-                    onChange={(e) => setResetConfirmPassword(e.target.value)}
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="login-button"
-                  disabled={loading}
-                >
-                  {loading ? "Resetting password..." : "Reset Password"}
-                </button>
-              </form>
-
-              <p className="auth-switch">
-                <button
-                  type="button"
-                  className="auth-link"
-                  onClick={() => {
-                    setMessage("");
-                    setAuthMode("login");
-                  }}
-                >
-                  Back to Login
-                </button>
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="login-subtitle">Create your student account</p>
-
-              <form onSubmit={handleRegister}>
-                <div className="input-group">
-                  <label htmlFor="register-fullname">Full Name</label>
-                  <input
-                    id="register-fullname"
-                    type="text"
-                    placeholder="Enter your full name"
-                    value={registerFullName}
-                    onChange={(e) => setRegisterFullName(e.target.value)}
-                    autoComplete="name"
-                    minLength={2}
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="register-email">Email</label>
-                  <input
-                    id="register-email"
-                    type="email"
-                    placeholder="Enter your email"
-                    value={registerEmail}
-                    onChange={(e) => setRegisterEmail(e.target.value)}
-                    autoComplete="email"
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="register-password">Password</label>
-                  <input
-                    id="register-password"
-                    type="password"
-                    placeholder="At least 8 characters"
-                    value={registerPassword}
-                    onChange={(e) => setRegisterPassword(e.target.value)}
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                  />
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="confirm-password">Confirm Password</label>
-                  <input
-                    id="confirm-password"
-                    type="password"
-                    placeholder="Enter the password again"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    autoComplete="new-password"
-                    minLength={8}
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="login-button"
-                  disabled={loading}
-                >
-                  {loading ? "Creating account..." : "Create Account"}
-                </button>
-              </form>
-
-              <p className="auth-switch">
-                Already have an account?{" "}
-                <button
-                  type="button"
-                  className="auth-link"
-                  onClick={() => {
-                    setMessage("");
-                    setAuthMode("login");
-                  }}
-                >
-                  Back to Login
-                </button>
-              </p>
-            </>
-          )}
-
-          {message && (
-            <div className="login-message" role="status">
-              {message}
-            </div>
-          )}
-        </div>
-      </div>
+      <AppContext.Provider value={contextValue}>
+        <AuthPage />
+      </AppContext.Provider>
     );
   }
+
 
   // ======================================================
   // MAIN APPLICATION
   // ======================================================
   return (
+    <AppContext.Provider value={contextValue}>
     <div className="app-layout">
       {/* MOBILE OVERLAY */}
       {sidebarOpen && (
@@ -1937,7 +1879,7 @@ function App() {
             className={`nav-item ${activePage === "dashboard" ? "active" : ""}`}
             onClick={() => changePage("dashboard")}
           >
-            <span className="nav-icon">⌂</span>
+            <span className="nav-icon"><IconHome /></span>
 
             <span>Dashboard</span>
           </button>
@@ -1949,7 +1891,7 @@ function App() {
             }`}
             onClick={() => changePage("complaints")}
           >
-            <span className="nav-icon">▤</span>
+            <span className="nav-icon"><IconList /></span>
 
             <span>{isStudent ? "My Complaints" : "Complaints"}</span>
           </button>
@@ -1962,7 +1904,7 @@ function App() {
               }`}
               onClick={() => changePage("new-complaint")}
             >
-              <span className="nav-icon">＋</span>
+              <span className="nav-icon"><IconPlus /></span>
 
               <span>New Complaint</span>
             </button>
@@ -1976,7 +1918,7 @@ function App() {
               }`}
               onClick={() => changePage("departments")}
             >
-              <span className="nav-icon">▦</span>
+              <span className="nav-icon"><IconGrid /></span>
 
               <span>Departments</span>
             </button>
@@ -1988,7 +1930,7 @@ function App() {
               className={`nav-item ${activePage === "users" ? "active" : ""}`}
               onClick={() => changePage("users")}
             >
-              <span className="nav-icon">♙</span>
+              <span className="nav-icon"><IconUsers /></span>
 
               <span>Users</span>
             </button>
@@ -1999,7 +1941,7 @@ function App() {
             className={`nav-item ${activePage === "reports" ? "active" : ""}`}
             onClick={() => changePage("reports")}
           >
-            <span className="nav-icon">◫</span>
+            <span className="nav-icon"><IconChart /></span>
 
             <span>Reports</span>
           </button>
@@ -2014,14 +1956,14 @@ function App() {
             className={`nav-item ${activePage === "profile" ? "active" : ""}`}
             onClick={() => changePage("profile")}
           >
-            <span className="nav-icon">◉</span>
+            <span className="nav-icon"><IconUser /></span>
 
             <span>My Profile</span>
           </button>
 
           {/* LOGOUT */}
           <button className="nav-item logout-nav" onClick={logout}>
-            <span className="nav-icon">↪</span>
+            <span className="nav-icon"><IconLogout /></span>
 
             <span>Logout</span>
           </button>
@@ -2041,7 +1983,7 @@ function App() {
             className="mobile-menu-button"
             onClick={() => setSidebarOpen(!sidebarOpen)}
           >
-            ☰
+            <IconMenu />
           </button>
 
           {/* PAGE TITLE */}
@@ -2078,7 +2020,7 @@ function App() {
                 onClick={() => setShowNotifications((previous) => !previous)}
                 aria-label="Notifications"
               >
-                <span>♢</span>
+                <IconBell />
 
                 {notifications.length > 0 && <i></i>}
               </button>
@@ -2100,14 +2042,14 @@ function App() {
                       className="notification-close"
                       onClick={() => setShowNotifications(false)}
                     >
-                      ×
+                      <IconClose />
                     </button>
                   </div>
 
                   <div className="notification-list">
                     {notifications.length === 0 ? (
                       <div className="notification-empty">
-                        <div>♢</div>
+                        <IconBell size={28} />
 
                         <strong>No notifications</strong>
 
@@ -2121,14 +2063,16 @@ function App() {
                           onClick={() => {
                             setShowNotifications(false);
 
-                            setActivePage("complaints");
+                            setActivePage("complaints"); navigate("/complaints");
                           }}
                         >
                           <div className="notification-icon">
                             {notification.status === "CLOSED" ||
-                            notification.status === "RESOLVED"
-                              ? "✓"
-                              : "!"}
+                            notification.status === "RESOLVED" ? (
+                              <IconCheck size={16} />
+                            ) : (
+                              <IconAlert size={16} />
+                            )}
                           </div>
 
                           <div className="notification-content">
@@ -2150,10 +2094,10 @@ function App() {
                       onClick={() => {
                         setShowNotifications(false);
 
-                        setActivePage("complaints");
+                        setActivePage("complaints"); navigate("/complaints");
                       }}
                     >
-                      View all complaints →
+                      View all complaints â†’
                     </button>
                   )}
                 </div>
@@ -2179,207 +2123,10 @@ function App() {
             CONTENT
         ================================================== */}
         <main className="content">
-          {/* ==================================================
-              DASHBOARD
-          ================================================== */}
-          {activePage === "dashboard" && (
-            <>
-              <section className="welcome-banner">
-                <div>
-                  <span className="welcome-small">Welcome back 👋</span>
+          {activePage === "dashboard" && <DashboardPage />}
 
-                  <h2>{user?.fullName || "User"}</h2>
+          {activePage === "complaints" && <ComplaintsPage />}
 
-                  <p>Here's what's happening with your campus reports today.</p>
-                </div>
-
-                {isStudent && (
-                  <button
-                    className="primary-button"
-                    onClick={() => changePage("new-complaint")}
-                  >
-                    + New Complaint
-                  </button>
-                )}
-              </section>
-
-              {/* STATISTICS */}
-              <section className="stats-grid">
-                <div className="stat-box">
-                  <div className="stat-icon blue">▤</div>
-
-                  <div>
-                    <span>Total Complaints</span>
-
-                    <strong>{statistics.total}</strong>
-                  </div>
-                </div>
-
-                <div className="stat-box">
-                  <div className="stat-icon orange">◷</div>
-
-                  <div>
-                    <span>Pending</span>
-
-                    <strong>{statistics.pending}</strong>
-                  </div>
-                </div>
-
-                <div className="stat-box">
-                  <div className="stat-icon purple">◌</div>
-
-                  <div>
-                    <span>In Progress</span>
-
-                    <strong>{statistics.inProgress}</strong>
-                  </div>
-                </div>
-
-                <div className="stat-box">
-                  <div className="stat-icon green">✓</div>
-
-                  <div>
-                    <span>Resolved</span>
-
-                    <strong>{statistics.resolved}</strong>
-                  </div>
-                </div>
-              </section>
-
-              {/* RECENT COMPLAINTS */}
-              <section className="panel">
-                <div className="panel-header">
-                  <div>
-                    <h2>Recent Complaints</h2>
-
-                    <p>Latest campus complaints</p>
-                  </div>
-
-                  <button
-                    className="outline-button"
-                    onClick={() => changePage("complaints")}
-                  >
-                    View All
-                  </button>
-                </div>
-
-                <ComplaintTable
-                  complaints={complaints.slice(0, 5)}
-                  onViewDetails={loadComplaintDetails}
-                />
-              </section>
-            </>
-          )}
-
-          {/* ==================================================
-              COMPLAINTS
-          ================================================== */}
-          {activePage === "complaints" && (
-            <section className="panel">
-              <div className="panel-header">
-                <div>
-                  <h2>
-                    {isStudent ? "My Complaints" : "Complaint Management"}
-                  </h2>
-
-                  <p>Search and manage campus complaints.</p>
-                </div>
-
-                <div className="panel-actions">
-                  {isStudent && (
-                    <button
-                      className="primary-button"
-                      onClick={() => changePage("new-complaint")}
-                    >
-                      + New Complaint
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    className="outline-button"
-                    onClick={loadComplaints}
-                    disabled={complaintLoading}
-                  >
-                    {complaintLoading ? "↻ Refreshing..." : "↻ Refresh"}
-                  </button>
-                </div>
-              </div>
-
-              {/* FILTERS */}
-              <div className="filter-bar">
-                <div className="search-box">
-                  <span>⌕</span>
-
-                  <input
-                    type="text"
-                    placeholder="Search complaints..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="ALL">All Statuses</option>
-
-                  {statusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                >
-                  <option value="ALL">All Priorities</option>
-
-                  <option value="LOW">Low</option>
-
-                  <option value="MEDIUM">Medium</option>
-
-                  <option value="HIGH">High</option>
-
-                  <option value="CRITICAL">Critical</option>
-                </select>
-              </div>
-
-              {/* TABLE */}
-              {isStudent ? (
-                <ComplaintTable
-                  complaints={filteredComplaints}
-                  onViewDetails={loadComplaintDetails}
-                />
-              ) : (
-                <ManagementTable
-                  complaints={filteredComplaints}
-                  isStaff={isStaff}
-                  isOfficer={isOfficer}
-                  isAdmin={isAdmin}
-                  departments={departments}
-                  selectedDepartments={selectedDepartments}
-                  setSelectedDepartments={setSelectedDepartments}
-                  selectedStatuses={selectedStatuses}
-                  setSelectedStatuses={setSelectedStatuses}
-                  handleAssignComplaint={handleAssignComplaint}
-                  handleUpdateStatus={handleUpdateStatus}
-                  onViewDetails={loadComplaintDetails}
-                />
-              )}
-
-              {actionMessage && (
-                <div className="action-message">{actionMessage}</div>
-              )}
-            </section>
-          )}
-
-          {/* ==================================================
-              COMPLAINT DETAILS
-          ================================================== */}
           {activePage === "complaint-details" && (
             <ComplaintDetails
               complaint={selectedComplaint}
@@ -2394,6 +2141,7 @@ function App() {
               loading={detailsLoading}
               message={detailsMessage}
               onBack={closeComplaintDetails}
+              onDownloadAttachment={handleDownloadAttachment}
             />
           )}
 
@@ -2438,7 +2186,81 @@ function App() {
                     required
                   />
                 </div>
+                {/* AI COMPLAINT ASSISTANCE */}
+                <div className="form-group ai-assistance">
+                  <button
+                    type="button"
+                    onClick={handleAIComplaintAssistance}
+                    disabled={aiLoading}
+                  >
+                    {aiLoading
+                      ? "Analyzing complaint..."
+                      : "âœ¨ Get AI Assistance"}
+                  </button>
 
+                  <small>
+                    Get a suggested category, a short summary, and an urgency
+                    assessment before submitting your complaint.
+                  </small>
+
+                  {aiMessage && (
+                    <p role="alert" className="form-message">
+                      {aiMessage}
+                    </p>
+                  )}
+
+                  {aiAssistance && (
+                    <div className="ai-results">
+                      <h3>Complaint Analysis</h3>
+
+                      <p>
+                        <strong>Suggested category:</strong>{" "}
+                        {aiAssistance.categorySuggestion?.suggestedCategory ||
+                          "No suggestion"}
+                      </p>
+
+                      <p>
+                        <strong>Confidence:</strong>{" "}
+                        {Math.round(
+                          (aiAssistance.categorySuggestion?.confidence || 0) *
+                            100,
+                        )}
+                        %
+                      </p>
+
+                      <p>
+                        <strong>Reason:</strong>{" "}
+                        {aiAssistance.categorySuggestion?.reason ||
+                          "Not available"}
+                      </p>
+
+                      <p>
+                        <strong>Summary:</strong>{" "}
+                        {aiAssistance.summary || "No summary available"}
+                      </p>
+
+                      <p>
+                        <strong>Urgency:</strong>{" "}
+                        {aiAssistance.urgency?.isUrgent
+                          ? "Potentially urgent â€” staff should review"
+                          : "No urgent keywords detected"}
+                      </p>
+
+                      {aiAssistance.urgency?.matchedKeywords?.length > 0 && (
+                        <p>
+                          <strong>Matched keywords:</strong>{" "}
+                          {aiAssistance.urgency.matchedKeywords.join(", ")}
+                        </p>
+                      )}
+
+                      <small>
+                        These are automated suggestions, not a final decision.
+                        Review the results and choose the complaint category
+                        yourself.
+                      </small>
+                    </div>
+                  )}
+                </div>
                 {/* ATTACHMENTS */}
                 <div className="form-group">
                   <label htmlFor="complaint-attachments">
@@ -2487,7 +2309,7 @@ function App() {
                     <ul>
                       {complaintFiles.map((file, index) => (
                         <li key={`${file.name}-${index}`}>
-                          {file.name} — {(file.size / (1024 * 1024)).toFixed(2)}{" "}
+                          {file.name} â€” {(file.size / (1024 * 1024)).toFixed(2)}{" "}
                           MB
                         </li>
                       ))}
@@ -2537,7 +2359,7 @@ function App() {
                             location.area,
                           ]
                             .filter(Boolean)
-                            .join(" — ")}
+                            .join(" â€” ")}
                         </option>
                       ))}
                     </select>
@@ -2579,22 +2401,20 @@ function App() {
                           >
                             <TileLayer
                               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                              attribution=
-                                "&© OpenStreetMap contributors"
+                              attribution="&copy; OpenStreetMap contributors"
                             />
                             {mapMarker && (
                               <Marker position={mapMarker}>
-                                <Popup>
-                                  Selected location
-                                </Popup>
+                                <Popup>Selected location</Popup>
                               </Marker>
                             )}
-                            <MapClickListener />
+                            <MapClickListener onMapClick={handleMapClick} />
                           </MapContainer>
                         </div>
                         {complaintForm.latitude && complaintForm.longitude && (
                           <small>
-                            Selected: {complaintForm.latitude}, {complaintForm.longitude}
+                            Selected: {complaintForm.latitude},{" "}
+                            {complaintForm.longitude}
                           </small>
                         )}
                       </>
@@ -2693,7 +2513,7 @@ function App() {
                     onClick={loadUsers}
                     disabled={userLoading}
                   >
-                    ↻ Refresh
+                    â†» Refresh
                   </button>
                 </div>
               </div>
@@ -2701,7 +2521,7 @@ function App() {
               {/* USER SEARCH */}
               <div className="filter-bar user-filter-bar">
                 <div className="search-box">
-                  <span>⌕</span>
+                  <span>âŒ•</span>
 
                   <input
                     type="text"
@@ -2852,7 +2672,7 @@ function App() {
               {/* USERS TABLE */}
               {userLoading ? (
                 <div className="empty-state">
-                  <div className="empty-icon">◌</div>
+                  <div className="empty-icon"><IconClock /></div>
 
                   <h3>Loading users...</h3>
 
@@ -2860,7 +2680,7 @@ function App() {
                 </div>
               ) : filteredUsers.length === 0 ? (
                 <div className="empty-state">
-                  <div className="empty-icon">♙</div>
+                  <div className="empty-icon">â™™</div>
 
                   <h3>No users found</h3>
 
@@ -2933,7 +2753,7 @@ function App() {
                               ? new Date(
                                   selectedUser.createdAt,
                                 ).toLocaleDateString()
-                              : "—"}
+                              : "â€”"}
                           </td>
 
                           <td>
@@ -3051,7 +2871,7 @@ function App() {
                     className="primary-button"
                     onClick={startProfileEditing}
                   >
-                    ✏️ Edit Profile
+                    âœ<IconEdit /> Edit Profile
                   </button>
                 )}
               </div>
@@ -3135,7 +2955,7 @@ function App() {
                         className="primary-button"
                         onClick={handleSaveProfile}
                       >
-                        💾 Save Changes
+                        <IconSave /> Save Changes
                       </button>
                     </div>
                   </div>
@@ -3171,6 +2991,21 @@ function App() {
         </main>
       </div>
     </div>
+    </AppContext.Provider>
+  );
+}
+
+// ======================================================
+// APP — wraps the shell in the router
+// ======================================================
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/login" element={<AuthPage />} />
+        <Route path="*" element={<AppShell />} />
+      </Routes>
+    </Router>
   );
 }
 
@@ -3190,6 +3025,7 @@ function ComplaintDetails({
   loading,
   message,
   onBack,
+  onDownloadAttachment,
 }) {
   // ====================================================
   // LOADING
@@ -3221,13 +3057,9 @@ function ComplaintDetails({
 
           <p>{message}</p>
 
-                    <button
-                      type="button"
-                      onClick={loadComplaint}
-                      className="btn btn-primary"
-                    >
-                      Try Again
-                    </button>
+          <button type="button" onClick={onBack} className="btn btn-primary">
+            Try Again
+          </button>
         </div>
       </section>
     );
@@ -3240,14 +3072,14 @@ function ComplaintDetails({
     return (
       <section className="panel">
         <div className="empty-state">
-          <div className="empty-icon">▤</div>
+          <div className="empty-icon">â–¤</div>
 
           <h3>Complaint not found</h3>
 
           <p>The requested complaint could not be found.</p>
 
           <button type="button" className="primary-button" onClick={onBack}>
-            ← Back to Complaints
+            â† Back to Complaints
           </button>
         </div>
       </section>
@@ -3268,7 +3100,7 @@ function ComplaintDetails({
       complaint.location?.area,
     ]
       .filter(Boolean)
-      .join(" — ") ||
+      .join(" â€” ") ||
     complaint.locationDescription ||
     "Unknown";
   return (
@@ -3279,7 +3111,7 @@ function ComplaintDetails({
       <section className="page-header">
         <div>
           <button type="button" className="secondary-button" onClick={onBack}>
-            ← Back to Complaints
+            â† Back to Complaints
           </button>
 
           <h1>Complaint Details</h1>
@@ -3384,6 +3216,39 @@ function ComplaintDetails({
 
           <p>{complaint.description}</p>
         </div>
+
+        {/* ATTACHMENTS */}
+        <div className="description-section">
+          <h3>Attachments</h3>
+
+          {!complaint.attachments || complaint.attachments.length === 0 ? (
+            <p className="attachments-empty">No attachments were uploaded.</p>
+          ) : (
+            <ul className="attachments-list">
+              {complaint.attachments.map((attachment) => (
+                <li key={attachment.id}>
+                  <span>
+                    {attachment.originalName || attachment.storedName} ({" "}
+                    {attachment.size
+                      ? `${(attachment.size / (1024 * 1024)).toFixed(2)} MB`
+                      : ""}
+                    )
+                  </span>
+
+                  <button
+                    type="button"
+                    className="small-button"
+                    onClick={() =>
+                      onDownloadAttachment(complaint.id, attachment)
+                    }
+                  >
+                    Download
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
 
       {/* ==================================================
@@ -3400,7 +3265,7 @@ function ComplaintDetails({
 
         {!history || history.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-icon">◷</div>
+            <div className="empty-icon">â—·</div>
 
             <h3>No status history</h3>
 
@@ -3427,7 +3292,7 @@ function ComplaintDetails({
 
                   <p>
                     {item.oldStatus
-                      ? `${item.oldStatus} → ${item.newStatus}`
+                      ? `${item.oldStatus} â†’ ${item.newStatus}`
                       : `Complaint created with status ${item.newStatus}`}
                   </p>
 
@@ -3472,7 +3337,7 @@ function ComplaintDetails({
           <div className="comments-loading">Loading comments...</div>
         ) : !comments || comments.length === 0 ? (
           <div className="comments-empty">
-            <div className="comments-empty-icon">💬</div>
+            <div className="comments-empty-icon">ðŸ’¬</div>
 
             <strong>No comments yet</strong>
 
@@ -3563,7 +3428,7 @@ function ComplaintTable({ complaints, onViewDetails }) {
   if (!complaints || complaints.length === 0) {
     return (
       <div className="empty-state">
-        <div className="empty-icon">▤</div>
+        <div className="empty-icon">â–¤</div>
 
         <h3>No complaints found</h3>
 
@@ -3657,38 +3522,27 @@ function ManagementTable({
   // ====================================================
   // ROLE-BASED STATUS OPTIONS
   // ====================================================
-  const getAllowedStatuses = () => {
-    if (isOfficer) {
-      return ["IN_PROGRESS", "RESOLVED", "REJECTED"];
+  const role = isOfficer
+    ? "DEPARTMENT_OFFICER"
+    : isStaff
+      ? "STAFF"
+      : isAdmin
+        ? "ADMINISTRATOR"
+        : "";
+
+  // Only statuses that are both a valid transition from the
+  // current status AND permitted for this role.
+  const getAllowedStatuses = (currentStatus) => {
+    if (!role) {
+      return [];
     }
 
-    if (isStaff) {
-      return [
-        "REVIEWED",
-        "ASSIGNED",
-        "IN_PROGRESS",
-        "RESOLVED",
-        "CLOSED",
-        "REJECTED",
-      ];
-    }
+    const transitions = ALLOWED_TRANSITIONS[currentStatus] || [];
 
-    if (isAdmin) {
-      return [
-        "PENDING",
-        "REVIEWED",
-        "ASSIGNED",
-        "IN_PROGRESS",
-        "RESOLVED",
-        "CLOSED",
-        "REJECTED",
-      ];
-    }
-
-    return [];
+    return transitions.filter(
+      (status) => (TRANSITION_ROLES[status] || []).includes(role),
+    );
   };
-
-  const allowedStatuses = getAllowedStatuses();
 
   // ====================================================
   // EMPTY STATE
@@ -3696,7 +3550,7 @@ function ManagementTable({
   if (!complaints || complaints.length === 0) {
     return (
       <div className="empty-state">
-        <div className="empty-icon">▤</div>
+        <div className="empty-icon">â–¤</div>
 
         <h3>No complaints found</h3>
 
@@ -3736,6 +3590,8 @@ function ManagementTable({
           {complaints.map((complaint) => {
             const isFinalStatus =
               complaint.status === "CLOSED" || complaint.status === "REJECTED";
+
+            const allowedStatuses = getAllowedStatuses(complaint.status);
 
             return (
               <tr key={complaint.id}>
@@ -3839,7 +3695,6 @@ function ManagementTable({
                       </option>
 
                       {allowedStatuses
-                        .filter((status) => status !== complaint.status)
                         .map((status) => (
                           <option key={status} value={status}>
                             {status}

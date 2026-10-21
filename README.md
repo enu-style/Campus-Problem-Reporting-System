@@ -38,15 +38,20 @@ Students and other authorized users can use the system to report campus problems
 - Campus departments and locations
 - Complaint comments
 - Complaint status history
+- Student confirmation and reopening of resolved complaints
+- In-app notifications for status changes
+- AI-assisted complaint categorization and urgency detection
+- Map-based complaint location picker
+- File attachments (photos and PDFs)
 - Database-backed data management
 
 ## User Roles
 
 The project database supports the following roles:
 
-- **STUDENT:** Reports problems and accesses their own complaints.
-- **STAFF:** Supports campus complaint management.
-- **DEPARTMENT_OFFICER:** Manages complaints assigned to their department.
+- **STUDENT:** Reports problems, tracks progress, confirms a resolved complaint as fixed, or reopens it with a reason when the problem is not actually solved.
+- **STAFF:** Supports campus complaint management; reviews, assigns, and updates complaint status.
+- **DEPARTMENT_OFFICER:** Manages complaints assigned to their department; works on and resolves complaints.
 - **ADMINISTRATOR:** Has administrative access according to the application's authorization rules.
 
 Available actions depend on the permissions implemented in the backend.
@@ -65,12 +70,17 @@ injibara-campus-reporting/
 │   │   ├── controllers/
 │   │   ├── middleware/
 │   │   ├── routes/
+│   │   ├── services/
 │   │   └── server.js
 │   ├── .env
 │   ├── .env.example
 │   └── package.json
 ├── frontend/
 │   ├── src/
+│   │   ├── components/   # SVG icon set and shared UI pieces
+│   │   ├── pages/        # AuthPage, DashboardPage, ComplaintsPage
+│   │   ├── App.jsx
+│   │   └── AppContext.jsx
 │   ├── .env.example
 │   └── package.json
 └── README.md
@@ -197,12 +207,13 @@ http://localhost:5173
 The backend source includes route modules for:
 
 - Authentication
-- Complaints
+- Complaints (including student confirm and reopen endpoints)
 - Complaint comments
 - Categories
 - Departments
 - Locations
 - Users
+- Notifications
 
 Check `backend/src/server.js` and the files in `backend/src/routes/` for the exact registered URL paths and supported HTTP methods.
 
@@ -234,19 +245,33 @@ A successful frontend build creates production assets in the `frontend/dist/` di
 
 Before deployment, test authentication, role permissions, complaint creation, complaint visibility, status changes, comments, and database persistence.
 
+## Complaint Lifecycle
+
+A complaint moves through the following statuses:
+
+```text
+PENDING → REVIEWED → ASSIGNED → IN_PROGRESS → RESOLVED → CLOSED
+```
+
+At any stage before completion a complaint may be `REJECTED` by staff. If a
+student is not satisfied with a resolved complaint, they can confirm it as
+`CLOSED` or reopen it with a reason, which returns it to the responsible
+department.
+
+Each transition is validated on the backend against both the allowed status
+flow and the role of the user performing the change, and every change is
+recorded in the complaint's status history with an optional note.
+
 ## Development Status
 
 This project is under active development. Features, routes, database models, and setup instructions may be updated as implementation progresses.
 
 ## Future Improvements
 
-- Complete frontend workflows for every supported role
-- Improve complaint filtering and search
-- Add notifications for complaint status changes
-- Add dashboards and reports
 - Add comprehensive automated tests
 - Configure secure production deployment
 - Improve validation, logging, and error handling
+- Add email/SMS notifications for reopened complaints
 
 ## Author and Institution
 

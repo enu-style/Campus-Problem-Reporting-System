@@ -1,4 +1,5 @@
 const prisma = require("../config/prisma");
+const { canViewComplaint } = require("./complaintController");
 
 // ======================================================
 // GET COMMENTS FOR A COMPLAINT
@@ -26,6 +27,17 @@ const getComplaintComments = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Complaint not found.",
+      });
+    }
+
+    // The user must be allowed to view the complaint
+    // before they can read its comments.
+    const allowed = await canViewComplaint(req.user.userId, complaint);
+
+    if (!allowed) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to view this complaint's comments.",
       });
     }
 
@@ -134,6 +146,17 @@ const createComplaintComment = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Complaint not found.",
+      });
+    }
+
+    // The user must be allowed to view the complaint
+    // before they can comment on it.
+    const allowed = await canViewComplaint(req.user.userId, complaint);
+
+    if (!allowed) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to comment on this complaint.",
       });
     }
 

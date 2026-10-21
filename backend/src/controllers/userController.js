@@ -571,10 +571,19 @@ const deleteUser = async (req, res) => {
     );
 
     if (complaintCount > 0 || commentCount > 0 || statusChangeCount > 0) {
-      return res.status(409).json({
-        success: false,
+      // Soft delete: preserve the account and its complaint/comment
+      // history, but deactivate it so the user can no longer log in
+      // or appear as an active account.
+      await prisma.user.update({
+        where: { id: userId },
+        data: { isActive: false },
+      });
+
+      return res.json({
+        success: true,
         message:
-          "This user cannot be deleted because related complaint records exist. Preserve the account and its history.",
+          "User has related complaint records, so the account was deactivated (soft delete) instead of deleted.",
+        softDeleted: true,
         relatedRecords: {
           complaints: complaintCount,
           comments: commentCount,

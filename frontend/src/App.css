@@ -3199,3 +3199,82 @@ textarea {
   color: #ffffff;
   border-color: #2563eb;
 }
+
+/* AI BUTTON CLICK FIX */
+.form-group.ai-assistance {
+  position: relative;
+  z-index: 20;
+}
+
+.form-group.ai-assistance button {
+  position: relative;
+  z-index: 21;
+  pointer-events: auto !important;
+  cursor: pointer;
+}
+
+/* ============================================================
+   SVG ICONS — alignment & sizing for the icon set
+   ============================================================ */
+.svg-icon {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* Sidebar navigation icons */
+.nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Stat card icons */
+.stat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Empty state icons */
+.empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Small buttons: icon + label side by side */
+.small-button .svg-icon,
+.primary-button .svg-icon,
+.outline-button .svg-icon {
+  margin-right: 6px;
+}
+
+.small-button,
+.primary-button,
+.outline-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Notification toggle */
+.notification {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification .svg-icon + i,
+.notification i {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+/* Mobile menu button */
+.mobile-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

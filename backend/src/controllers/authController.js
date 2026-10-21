@@ -150,6 +150,14 @@ const login = async (req, res) => {
       });
     }
 
+    // Soft-deleted accounts cannot log in
+    if (user.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: "This account has been deactivated. Contact an administrator.",
+      });
+    }
+
     // Check password
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
 
@@ -302,24 +310,20 @@ const forgotPassword = async (req, res) => {
     });
 
     if (user) {
-    const devResetEnabled =
-  process.env.NODE_ENV === "development" &&
-  process.env.DEV_PASSWORD_RESET_LINK === "true";
-
-
-
-if (
-  !process.env.FRONTEND_URL ||
-  (!devResetEnabled &&
-    (!process.env.SMTP_HOST ||
-      !process.env.SMTP_USER ||
-      !process.env.SMTP_PASS))
-) {
-  return res.status(503).json({
-    success: false,
-    message: "Password reset email is not configured yet",
-  });
-}
+      // The reset link must be emailed, never returned in the API
+      // response. Anyone who knows the email could otherwise take
+      // over the account.
+      if (
+        !process.env.FRONTEND_URL ||
+        !process.env.SMTP_HOST ||
+        !process.env.SMTP_USER ||
+        !process.env.SMTP_PASS
+      ) {
+        return res.status(503).json({
+          success: false,
+          message: "Password reset email is not configured yet",
+        });
+      }
       const rawToken = crypto.randomBytes(32).toString("hex");
       const tokenHash = crypto
         .createHash("sha256")
@@ -338,18 +342,10 @@ if (
         },
       });
 
-    
+
 const resetUrl =
   `${process.env.FRONTEND_URL.replace(/\/$/, "")}` +
   `/reset-password?token=${rawToken}`;
-
-if (devResetEnabled) {
-  return res.json({
-    success: true,
-    message: "Development password reset link created. It expires in 15 minutes.",
-    resetUrl,
-  });
-}
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,

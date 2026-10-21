@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/prisma"
@@ -35,15 +34,19 @@ model User {
   passwordHash String   @map("password_hash")
   roleId       Int      @map("role_id")
   departmentId Int?     @map("department_id")
+  isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  role          Role                    @relation(fields: [roleId], references: [id])
-  department    Department?             @relation(fields: [departmentId], references: [id])
-  complaints    Complaint[]
-  statusChanges ComplaintStatusHistory[]
-  comments      ComplaintComment[]
-passwordResetTokens PasswordResetToken[]
+  role                Role                     @relation(fields: [roleId], references: [id])
+  department          Department?              @relation(fields: [departmentId], references: [id])
+  complaints          Complaint[]
+  assignedComplaints  Complaint[]              @relation("AssignedOfficer")
+  statusChanges       ComplaintStatusHistory[]
+  comments            ComplaintComment[]
+  passwordResetTokens PasswordResetToken[]
+  notifications       Notification[]
+
   @@map("users")
 }
 
@@ -85,25 +88,34 @@ model Complaint {
   createdAt           DateTime        @default(now()) @map("created_at")
   updatedAt           DateTime        @updatedAt @map("updated_at")
 
-  reporter      User                    @relation(fields: [reportedById], references: [id])
-  category      Category                @relation(fields: [categoryId], references: [id])
-  location      Location?               @relation(fields: [locationId], references: [id])
-  department    Department?             @relation(fields: [departmentId], references: [id])
+  reporter      User                     @relation(fields: [reportedById], references: [id])
+  category      Category                 @relation(fields: [categoryId], references: [id])
+  location      Location?                @relation(fields: [locationId], references: [id])
+  department    Department?              @relation(fields: [departmentId], references: [id])
+  assignedTo    User?                    @relation("AssignedOfficer", fields: [assignedToId], references: [id])
   statusHistory ComplaintStatusHistory[]
   comments      ComplaintComment[]
-    
+
   attachments   ComplaintAttachment[]
+  notifications Notification[]
+
+  assignedToId Int? @map("assigned_to_id")
+
+  @@index([status])
+  @@index([reportedById])
+  @@index([departmentId])
+  @@index([createdAt])
   @@map("complaints")
 }
 
 model ComplaintStatusHistory {
-  id          Int             @id @default(autoincrement())
-  complaintId Int             @map("complaint_id")
+  id          Int              @id @default(autoincrement())
+  complaintId Int              @map("complaint_id")
   oldStatus   ComplaintStatus? @map("old_status")
   newStatus   ComplaintStatus  @map("new_status")
-  changedById Int             @map("changed_by_id")
+  changedById Int              @map("changed_by_id")
   note        String?
-  createdAt   DateTime        @default(now()) @map("created_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
 
   complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
   changedBy User      @relation(fields: [changedById], references: [id])
@@ -125,6 +137,7 @@ model ComplaintComment {
   @@index([complaintId])
   @@map("complaint_comments")
 }
+
 model ComplaintAttachment {
   id           Int      @id @default(autoincrement())
   complaintId  Int      @map("complaint_id")
@@ -139,6 +152,7 @@ model ComplaintAttachment {
   @@index([complaintId])
   @@map("complaint_attachments")
 }
+
 enum Priority {
   LOW
   MEDIUM
@@ -154,7 +168,9 @@ enum ComplaintStatus {
   RESOLVED
   CLOSED
   REJECTED
+  REOPENED
 }
+
 model PasswordResetToken {
   id        Int      @id @default(autoincrement())
   userId    Int      @map("user_id")
@@ -167,4 +183,21 @@ model PasswordResetToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("password_reset_tokens")
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  complaintId Int?     @map("complaint_id")
+  type        String
+  message     String
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  complaint Complaint? @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
 }
