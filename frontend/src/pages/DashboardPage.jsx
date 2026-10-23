@@ -62,7 +62,7 @@ function DashboardPage() {
     <>
       <section className="welcome-banner">
         <div>
-          <span className="welcome-small">Welcome back 👋</span>
+          <span className="welcome-small">Welcome back</span>
 
           <h2>{user?.fullName || "User"}</h2>
 
