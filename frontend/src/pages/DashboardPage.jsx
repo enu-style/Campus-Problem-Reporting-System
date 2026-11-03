@@ -13,7 +13,7 @@ import {
 // driven by the real /complaints/stats endpoint.
 // ============================================================
 function DashboardPage() {
-  const { user, isStudent, role, complaints, loadComplaintDetails, navigate } =
+  const { user, isStudent, complaints, loadComplaintDetails, navigate } =
     useApp();
 
   const [stats, setStats] = useState(null);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../AppContext";
-import { ComplaintTable } from "./DashboardPage";
+
 import {
   IconList,
   IconCheck,
