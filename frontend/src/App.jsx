@@ -1794,7 +1794,7 @@ function AppShell() {
   // ======================================================
   return (
     <AppContext.Provider value={contextValue}>
-    <div className="app-layout">
+    <div className={`app-layout ${sidebarOpen ? "sidebar-collapsed" : ""}`}>
       {/* MOBILE OVERLAY */}
       {sidebarOpen && (
         <div

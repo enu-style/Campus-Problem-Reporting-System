@@ -764,7 +764,7 @@ textarea {
 ========================================================= */
 
 .mobile-menu-button {
-  display: none;
+  display: flex;
 
   width: 41px;
   height: 41px;
@@ -3277,4 +3277,30 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+
+/* =========================================================
+   DESKTOP SIDEBAR TOGGLE
+========================================================= */
+@media (min-width: 801px) {
+  .app-layout .sidebar {
+    transform: translateX(0);
+    transition: transform 0.25s ease;
+  }
+
+  .app-layout.sidebar-collapsed .sidebar {
+    transform: translateX(-100%);
+  }
+
+  .app-layout .main-area {
+    width: calc(100% - 255px);
+    margin-left: 255px;
+    transition: width 0.25s ease, margin-left 0.25s ease;
+  }
+
+  .app-layout.sidebar-collapsed .main-area {
+    width: 100%;
+    margin-left: 0;
+  }
 }
