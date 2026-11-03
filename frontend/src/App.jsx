@@ -4,7 +4,7 @@ import {
   Routes,
   Route,
   useNavigate,
-  useLocation,
+
 } from "react-router-dom";
 import "./App.css";
 import AuthPage from "./pages/AuthPage";
@@ -50,39 +50,7 @@ const roleMap = {
 // Keep roleMap only as a fallback for records that predate /auth/me
 // including role info; the live role always comes from user.role.name.
 
-const statusOptions = [
-  "PENDING",
-  "REVIEWED",
-  "ASSIGNED",
-  "IN_PROGRESS",
-  "RESOLVED",
-  "CLOSED",
-  "REJECTED",
-  "REOPENED",
-];
 
-// Which status can follow another status. Mirrors the backend
-// ALLOWED_TRANSITIONS map so the dropdown only offers valid moves.
-const ALLOWED_TRANSITIONS = {
-  PENDING: ["REVIEWED", "ASSIGNED", "REJECTED"],
-  REVIEWED: ["ASSIGNED", "REJECTED"],
-  ASSIGNED: ["IN_PROGRESS", "REJECTED"],
-  IN_PROGRESS: ["RESOLVED", "REJECTED"],
-  RESOLVED: ["CLOSED"],
-  CLOSED: [],
-  REJECTED: [],
-  REOPENED: ["IN_PROGRESS", "REJECTED"],
-};
-
-// Which roles may perform each transition. Mirrors the backend rules.
-const TRANSITION_ROLES = {
-  REVIEWED: ["STAFF", "ADMINISTRATOR"],
-  ASSIGNED: ["STAFF", "ADMINISTRATOR"],
-  IN_PROGRESS: ["STAFF", "DEPARTMENT_OFFICER", "ADMINISTRATOR"],
-  RESOLVED: ["STAFF", "DEPARTMENT_OFFICER", "ADMINISTRATOR"],
-  CLOSED: ["STAFF", "ADMINISTRATOR"],
-  REJECTED: ["STAFF", "DEPARTMENT_OFFICER", "ADMINISTRATOR"],
-};
 
 const roleOptions = [
   { id: 1, name: "STUDENT" },
@@ -126,7 +94,7 @@ function AppShell() {
   const [forgotEmail, setForgotEmail] = useState("");
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
-  const [resetUrl, setResetUrl] = useState("");
+  const [, setResetUrl] = useState("");
   const [registerFullName, setRegisterFullName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
@@ -294,55 +262,42 @@ function AppShell() {
   // ROUTING (react-router)
   // ======================================================
   const navigateFn = useNavigate();
-  const location = useLocation();
 
   const navigate = (path) => {
     navigateFn(path);
     setSidebarOpen(false);
   };
 
-  // Keep activePage in sync with the URL
-  useEffect(() => {
-    const routeToPage = {
-      "/": "dashboard",
-      "/dashboard": "dashboard",
-      "/complaints": "complaints",
-      "/complaint-details": "complaint-details",
-      "/new-complaint": "new-complaint",
-      "/departments": "departments",
-      "/users": "users",
-      "/reports": "reports",
-      "/profile": "profile",
-    };
 
-    const page = routeToPage[location.pathname];
 
-    if (page) {
-      setActivePage(page);
-    }
-  }, [location.pathname]);
+
 
   // ======================================================
-  // INITIAL LOADING
+  // LOGOUT
   // ======================================================
-  useEffect(() => {
-    if (token) {
-      loadUser();
-      loadCategories();
-      loadLocations();
-      loadDepartments();
-    }
-  }, [token]);
+  const logout = () => {
+    localStorage.removeItem("token");
 
-  useEffect(() => {
-    if (token && user) {
-      loadComplaints();
+    setToken(null);
+    setUser(null);
 
-      if (user.roleId === 4) {
-        loadUsers();
-      }
-    }
-  }, [token, user]);
+    setComplaints([]);
+    setUsers([]);
+
+    setSelectedComplaint(null);
+    setStatusHistory([]);
+
+    setComments([]);
+    setCommentText("");
+    setCommentMessage("");
+
+    setEmail("");
+    setPassword("");
+
+    setActivePage("dashboard");
+    navigate("/");
+    setSidebarOpen(false);
+  };
 
   // ======================================================
   // LOAD CURRENT USER
@@ -825,6 +780,28 @@ function AppShell() {
   };
 
   // ======================================================
+  // INITIAL LOADING
+  // ======================================================
+  useEffect(() => {
+    if (token) {
+      loadUser();
+      loadCategories();
+      loadLocations();
+      loadDepartments();
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (token && user) {
+      loadComplaints();
+
+      if (user.roleId === 4) {
+        loadUsers();
+      }
+    }
+  }, [token, user]);
+
+  // ======================================================
   // LOGIN
   // ======================================================
   const handleLogin = async (e) => {
@@ -1007,34 +984,6 @@ function AppShell() {
     } finally {
       setLoading(false);
     }
-  };
-
-  // ======================================================
-  // LOGOUT
-  // ======================================================
-  const logout = () => {
-    localStorage.removeItem("token");
-
-    setToken(null);
-    setUser(null);
-
-    setComplaints([]);
-    setUsers([]);
-
-    setSelectedComplaint(null);
-    setStatusHistory([]);
-
-    setComments([]);
-    setCommentText("");
-    setCommentMessage("");
-
-    setEmail("");
-    setPassword("");
-
-    setActivePage("dashboard");
-    navigate("/");
-    setSidebarOpen(false);
-    setShowNotifications(false);
   };
 
   // ======================================================
@@ -3421,315 +3370,12 @@ function ComplaintDetails({
   );
 }
 
-// ======================================================
-// COMPLAINT TABLE
-// ======================================================
-function ComplaintTable({ complaints, onViewDetails }) {
-  if (!complaints || complaints.length === 0) {
-    return (
-      <div className="empty-state">
-        <div className="empty-icon">â–¤</div>
 
-        <h3>No complaints found</h3>
 
-        <p>There are no complaints to display.</p>
-      </div>
-    );
-  }
 
-  return (
-    <div className="table-wrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
 
-            <th>Complaint</th>
 
-            <th>Priority</th>
 
-            <th>Status</th>
 
-            <th>Department</th>
-
-            <th>Action</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {complaints.map((complaint) => (
-            <tr key={complaint.id}>
-              <td>
-                <span className="complaint-id">#{complaint.id}</span>
-              </td>
-
-              <td>
-                <div className="complaint-title">
-                  <strong>{complaint.title}</strong>
-
-                  <small>{complaint.description}</small>
-                </div>
-              </td>
-
-              <td>
-                <span className={`badge priority-${complaint.priority}`}>
-                  {complaint.priority}
-                </span>
-              </td>
-
-              <td>
-                <span className={`badge status-${complaint.status}`}>
-                  {complaint.status}
-                </span>
-              </td>
-
-              <td>{complaint.department?.name || "Not assigned"}</td>
-
-              <td>
-                <button
-                  type="button"
-                  className="small-button"
-                  onClick={() => onViewDetails(complaint.id)}
-                >
-                  View Details
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ======================================================
-// MANAGEMENT TABLE
-// ======================================================
-function ManagementTable({
-  complaints,
-  isStaff,
-  isOfficer,
-  isAdmin,
-  departments,
-  selectedDepartments,
-  setSelectedDepartments,
-  selectedStatuses,
-  setSelectedStatuses,
-  handleAssignComplaint,
-  handleUpdateStatus,
-  onViewDetails,
-}) {
-  // ====================================================
-  // ROLE-BASED STATUS OPTIONS
-  // ====================================================
-  const role = isOfficer
-    ? "DEPARTMENT_OFFICER"
-    : isStaff
-      ? "STAFF"
-      : isAdmin
-        ? "ADMINISTRATOR"
-        : "";
-
-  // Only statuses that are both a valid transition from the
-  // current status AND permitted for this role.
-  const getAllowedStatuses = (currentStatus) => {
-    if (!role) {
-      return [];
-    }
-
-    const transitions = ALLOWED_TRANSITIONS[currentStatus] || [];
-
-    return transitions.filter(
-      (status) => (TRANSITION_ROLES[status] || []).includes(role),
-    );
-  };
-
-  // ====================================================
-  // EMPTY STATE
-  // ====================================================
-  if (!complaints || complaints.length === 0) {
-    return (
-      <div className="empty-state">
-        <div className="empty-icon">â–¤</div>
-
-        <h3>No complaints found</h3>
-
-        <p>There are no complaints matching your filters.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="table-wrapper management-table">
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-
-            <th>Complaint</th>
-
-            <th>Reporter</th>
-
-            <th>Category</th>
-
-            <th>Priority</th>
-
-            <th>Status</th>
-
-            <th>Department</th>
-
-            {(isStaff || isAdmin) && <th>Assign</th>}
-
-            <th>Update Status</th>
-
-            <th>Details</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {complaints.map((complaint) => {
-            const isFinalStatus =
-              complaint.status === "CLOSED" || complaint.status === "REJECTED";
-
-            const allowedStatuses = getAllowedStatuses(complaint.status);
-
-            return (
-              <tr key={complaint.id}>
-                {/* ID */}
-                <td>
-                  <span className="complaint-id">#{complaint.id}</span>
-                </td>
-
-                {/* COMPLAINT */}
-                <td>
-                  <div className="complaint-title">
-                    <strong>{complaint.title}</strong>
-
-                    <small>{complaint.description}</small>
-                  </div>
-                </td>
-
-                {/* REPORTER */}
-                <td>
-                  {complaint.reporter?.fullName ||
-                    complaint.reporter?.email ||
-                    "Unknown"}
-                </td>
-
-                {/* CATEGORY */}
-                <td>{complaint.category?.name || "Unknown"}</td>
-
-                {/* PRIORITY */}
-                <td>
-                  <span className={`badge priority-${complaint.priority}`}>
-                    {complaint.priority}
-                  </span>
-                </td>
-
-                {/* STATUS */}
-                <td>
-                  <span className={`badge status-${complaint.status}`}>
-                    {complaint.status}
-                  </span>
-                </td>
-
-                {/* DEPARTMENT */}
-                <td>{complaint.department?.name || "Not assigned"}</td>
-
-                {/* ASSIGN */}
-                {(isStaff || isAdmin) && (
-                  <td>
-                    <div className="table-action">
-                      <select
-                        value={
-                          selectedDepartments[complaint.id] ||
-                          complaint.departmentId ||
-                          ""
-                        }
-                        onChange={(e) =>
-                          setSelectedDepartments((previous) => ({
-                            ...previous,
-
-                            [complaint.id]: e.target.value,
-                          }))
-                        }
-                        disabled={isFinalStatus}
-                      >
-                        <option value="">Select Department</option>
-
-                        {departments.map((department) => (
-                          <option key={department.id} value={department.id}>
-                            {department.name}
-                          </option>
-                        ))}
-                      </select>
-
-                      <button
-                        type="button"
-                        className="small-button"
-                        onClick={() => handleAssignComplaint(complaint.id)}
-                        disabled={isFinalStatus}
-                      >
-                        Assign
-                      </button>
-                    </div>
-                  </td>
-                )}
-
-                {/* STATUS UPDATE */}
-                <td>
-                  <div className="table-action">
-                    <select
-                      value={selectedStatuses[complaint.id] || complaint.status}
-                      onChange={(e) =>
-                        setSelectedStatuses((previous) => ({
-                          ...previous,
-
-                          [complaint.id]: e.target.value,
-                        }))
-                      }
-                      disabled={isFinalStatus}
-                    >
-                      <option value={complaint.status}>
-                        Current: {complaint.status}
-                      </option>
-
-                      {allowedStatuses
-                        .map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                    </select>
-
-                    <button
-                      type="button"
-                      className="small-button"
-                      onClick={() => handleUpdateStatus(complaint.id)}
-                      disabled={isFinalStatus}
-                    >
-                      Update
-                    </button>
-                  </div>
-                </td>
-
-                {/* DETAILS */}
-                <td>
-                  <button
-                    type="button"
-                    className="small-button"
-                    onClick={() => onViewDetails(complaint.id)}
-                  >
-                    View
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 export default App;
